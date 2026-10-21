@@ -1,0 +1,40 @@
+# Copy to the repository root as fly.toml (git-ignored) and replace the CHANGE-ME values.
+# Prices (Fly docs, undated): shared-cpu-1x 512MB about $3.69/month running continuously,
+# 1GB volume about $0.15/month. Recheck before relying on them.
+app = "CHANGE-ME-icloud-mcp"
+primary_region = "iad"   # price listed for Ashburn; Claude and ChatGPT call from US clouds
+
+[build]
+  dockerfile = "deploy/Dockerfile"
+
+[env]
+  PUBLIC_BASE_URL = "https://CHANGE-ME-icloud-mcp.fly.dev"   # must equal the URL you give Claude
+  DEFAULT_TIMEZONE = "Asia/Tokyo"
+  DISPLAY_TIMEZONES = "Asia/Tokyo,Asia/Manila"
+  FASTMCP_HOME = "/data"
+
+# Secrets are NOT set here. Use `fly secrets import` (see docs/RUNBOOK-DEPLOY.md):
+#   ICLOUD_APPLE_ID, ICLOUD_APP_PASSWORD, GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET,
+#   ALLOWED_GITHUB_USER_ID, JWT_SIGNING_KEY
+
+[[mounts]]
+  source = "oauth_state"      # encrypted OAuth client and token state survives redeploys
+  destination = "/data"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "off"  # a cold start could miss Claude's 10 second OAuth endpoint limit
+  auto_start_machines = false
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    method = "GET"
+    path = "/healthz"
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "20s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

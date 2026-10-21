@@ -87,6 +87,13 @@ From FastMCP's docs ([OAuth Proxy](https://gofastmcp.com/servers/auth/oauth-prox
 - **There is no documented single-user allow-list.** We enforce "only the owner" ourselves by checking the GitHub `login`/numeric ID claim in a custom token-verifier or middleware, and test that other accounts and unauthenticated requests get rejected.
 - Default token/client storage is documented as "only suitable for development"; production needs `jwt_signing_key` from the environment and an encrypted, persistent `client_storage` (on one Fly machine: an encrypted store on a small volume, **UNVERIFIED** until built). Pin `allowed_client_redirect_uris` to the known callbacks once ChatGPT's is observed in logs.
 
+Built and tested in M3 (fake credentials, in-process and local HTTP; **not** against real GitHub, Claude or ChatGPT):
+- Unauthenticated `/mcp` returns 401 with a `resource_metadata` pointer; protected-resource metadata `resource` equals `<base>/mcp`; authorization-server metadata advertises S256, a registration endpoint, `client_id_metadata_document_supported: true` and `none` as a token auth method; `/token` accepts form-encoded bodies.
+- Registration is limited to Claude's callback and ChatGPT's two documented forms (`https://chatgpt.com/connector_platform_oauth_redirect`, `https://chatgpt.com/connector/oauth/{id}`; [OpenAI](https://developers.openai.com/apps-sdk/build/auth)); other redirects get HTTP 400.
+- Owner-only: the upstream verifier is wrapped so only the owner's numeric GitHub user ID passes on every request, and each tool repeats the check. Over real HTTP, a non-owner sees **no tools** (FastMCP answers "Unknown tool"), which resolves the earlier open question: unauthorised tools are hidden, not just rejected.
+- GitHub is asked for `read:user` only (FastMCP's default would be the broader `user`). Whether GitHub accepts this scope in the verifier's checks is **UNVERIFIED** until the first real sign-in.
+- Uvicorn's access log is disabled because OAuth callback URLs carry one-time codes.
+
 ### 4.3 Where the password lives
 Hosting platform's secret store (encrypted at rest, injected as an env var at runtime). Never in the repo, image, logs, or `.env` files that are committed. Locally for development: macOS Keychain.
 

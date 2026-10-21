@@ -1,0 +1,14 @@
+.git
+.venv
+.github
+tests
+spike
+helper
+scripts
+docs
+**/__pycache__
+.env
+.env.*
+fly.toml
+*.pem
+*.key

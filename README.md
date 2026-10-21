@@ -2,7 +2,7 @@
 
 An MCP server that lets Claude and ChatGPT use your **iCloud** Calendar (and, later, iCloud Mail), from anywhere: browser, phone, desktop. Say "add dentist Friday 3pm" in a Claude chat and it lands in your iCloud calendar. ChatGPT can read the calendar; on a Plus/Pro plan it very likely cannot add events (OpenAI limits those plans' custom connectors to read and fetch; see [docs/DESIGN.md](docs/DESIGN.md) §9). **Read-only by default.** Any change is shown to you as an exact preview and applied only after you confirm.
 
-> **Status: design phase. The server is not implemented yet.** What exists: design docs, the tool spec, CI, and a small macOS permission spike. Do not try to install it yet.
+> **Status (2026-10-21): the read-only hosted server is built and tested with fakes and a local CalDAV server; it has not yet been run against real iCloud, GitHub, Claude or ChatGPT.** Calendar writes and iCloud Mail are not built yet. To try it, follow [docs/RUNBOOK-DEPLOY.md](docs/RUNBOOK-DEPLOY.md).
 
 ## Do you need this?
 
@@ -20,7 +20,7 @@ An MCP server that lets Claude and ChatGPT use your **iCloud** Calendar (and, la
 | Cost | about $2.19 to $3.69/month on Fly.io (undated page; no free tier) | $0 |
 | Setup time | about 30 minutes | about 15 minutes with Xcode Command Line Tools |
 
-Guides: [HOSTED](docs/SETUP-HOSTED.md) · [LOCAL](docs/SETUP-LOCAL.md)
+Guides: [Deploy runbook](docs/RUNBOOK-DEPLOY.md) · [HOSTED overview](docs/SETUP-HOSTED.md) · [LOCAL](docs/SETUP-LOCAL.md)
 
 ## iCloud Mail (planned, off by default)
 v1 is **read + drafts only**: search and read mail, and create drafts in your Drafts folder. It never sends, deletes or moves mail. Mail is the main prompt-injection risk, so it is a separate opt-in module that ships after calendar works. Design: [docs/MAIL.md](docs/MAIL.md).

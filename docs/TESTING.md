@@ -21,5 +21,7 @@ All fixtures are synthetic. No real calendar names, email addresses or events ma
 ## Status (2026-10-21)
 - Built and passing in CI: unit tests (time zones, free time, service, MCP layer, converters, secrets and error mapping) and contract tests of the CalDAV backend against a local Radicale server (recurring series with an EXDATE and a moved occurrence, multi-day all-day, floating, Manila-to-Tokyo display, unreachable server, no URL or credential leakage).
 - The contract suite runs against the CalDAV backend only; the fake backend is covered by the service and MCP-layer tests (a single parametrised suite across both is not done).
-- Not yet built: auth tests (M3), write and confirm tests (M4), mail tests, Swift helper tests.
+- Auth tests (M3), run with fake credentials: discovery documents, redirect allow-list, form-encoded `/token`, owner-only verifier, per-tool check, real-HTTP tests (owner sees and calls tools, another account sees none, bad token rejected), settings validation, CLI refusals (no auth config, `--dev-no-auth` with a public URL or non-loopback host, `--allow-writes` not yet available).
+- CI also builds the container image and checks it refuses to start unconfigured, runs as a non-root user, and holds no secrets.
+- Not yet built: write and confirm tests (M4), mail tests, Swift helper tests. Not yet run: real GitHub sign-in, real iCloud, real Claude or ChatGPT connections.
 - Not yet run: anything against real iCloud. `scripts/probe_icloud.py` is the first step (read-only, counts only).

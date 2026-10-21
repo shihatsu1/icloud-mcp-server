@@ -55,3 +55,22 @@ jobs:
           codesign -s - --force tcc_spike
           codesign -dv tcc_spike
       # Not run here: CI runners have no Calendar access, and running would only prove that.
+
+  container:
+    name: Build container image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: docker build -f deploy/Dockerfile -t icloud-mcp-server:ci .
+      - name: Refuses to start without configuration
+        run: |
+          set +e
+          out=$(docker run --rm icloud-mcp-server:ci 2>&1); code=$?
+          echo "$out"
+          test "$code" -eq 2
+          echo "$out" | grep -q "Authentication is not configured"
+      - name: Runs as a non-root user
+        run: test "$(docker run --rm --entrypoint id icloud-mcp-server:ci -u)" = "10001"
+      - name: No secrets baked into the image
+        run: |
+          ! docker run --rm --entrypoint sh icloud-mcp-server:ci -c 'env | grep -E "PASSWORD|SECRET|SIGNING_KEY"'

@@ -6,7 +6,7 @@ from collections.abc import Callable
 from typing import Annotated, Any
 
 from fastmcp import FastMCP
-from fastmcp.server.auth import AuthProvider
+from fastmcp.server.auth import AuthCheck, AuthProvider
 from pydantic import Field
 
 from .core.errors import CalendarError, to_tool_error
@@ -38,7 +38,12 @@ def _guard(fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
         raise to_tool_error(exc) from None
 
 
-def build_server(service: CalendarService, *, auth: AuthProvider | None = None) -> FastMCP:
+def build_server(
+    service: CalendarService,
+    *,
+    auth: AuthProvider | None = None,
+    tool_auth: AuthCheck | None = None,
+) -> FastMCP:
     mcp = FastMCP(
         "iCloud Calendar",
         instructions=INSTRUCTIONS,
@@ -46,10 +51,17 @@ def build_server(service: CalendarService, *, auth: AuthProvider | None = None) 
         mask_error_details=True,  # unexpected errors never leak internals; CalendarError text passes
     )
 
+    @mcp.custom_route("/healthz", methods=["GET"])
+    async def healthz(_request):
+        from starlette.responses import PlainTextResponse
+
+        return PlainTextResponse("ok")
+
     @mcp.tool(
         name="list_calendars",
         title="List calendars",
         description="List the owner's iCloud calendars with their IDs, and whether this server may write to each.",
+        auth=tool_auth,
         annotations=_read_only("List calendars"),
     )
     def list_calendars() -> CalendarList:
@@ -62,6 +74,7 @@ def build_server(service: CalendarService, *, auth: AuthProvider | None = None) 
             "Find calendar events in a date range, optionally filtered by text and calendar. "
             "Recurring events are expanded into individual occurrences. A date-only end includes that whole day."
         ),
+        auth=tool_auth,
         annotations=_read_only("Search events"),
     )
     def search_events(
@@ -79,6 +92,7 @@ def build_server(service: CalendarService, *, auth: AuthProvider | None = None) 
         name="get_event",
         title="Get event details",
         description="Get the full details of one event or one occurrence of a recurring event.",
+        auth=tool_auth,
         annotations=_read_only("Get event details"),
     )
     def get_event(
@@ -96,6 +110,7 @@ def build_server(service: CalendarService, *, auth: AuthProvider | None = None) 
             "Find free windows of at least the requested length inside working hours, avoiding busy events. "
             "Optionally require the window to fall inside a second time zone's working hours too."
         ),
+        auth=tool_auth,
         annotations=_read_only("Find free time"),
     )
     def find_free_time(
