@@ -1,5 +1,5 @@
-import icloud_calendar_mcp
+import icloud_mcp_server
 
 
 def test_package_imports():
-    assert icloud_calendar_mcp.__version__
+    assert icloud_mcp_server.__version__

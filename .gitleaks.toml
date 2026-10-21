@@ -1,4 +1,4 @@
-title = "icloud-calendar-mcp gitleaks config"
+title = "icloud-mcp-server gitleaks config"
 
 [extend]
 useDefault = true

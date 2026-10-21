@@ -1,4 +1,4 @@
-# icloud-calendar-mcp
+# icloud-mcp-server
 
 An MCP server that lets Claude and ChatGPT use your **iCloud** Calendar (and, later, iCloud Mail), from anywhere: browser, phone, desktop. Say "add dentist Friday 3pm" in a chat and it lands in your iCloud calendar. **Read-only by default.** Any change is shown to you as an exact preview and applied only after you confirm.
 
@@ -17,7 +17,7 @@ An MCP server that lets Claude and ChatGPT use your **iCloud** Calendar (and, la
 | How | HTTPS server + CalDAV + OAuth | stdio server + Swift EventKit helper |
 | Credential | iCloud **app-specific password** on the server | **None** (macOS permission) |
 | Calendars | iCloud only | everything on the Mac |
-| Cost | about $2/month hosting (check current pricing) | $0 |
+| Cost | about $2.19 to $3.69/month on Fly.io (undated page; no free tier) | $0 |
 | Setup time | about 30 minutes | about 15 minutes with Xcode Command Line Tools |
 
 Guides: [HOSTED](docs/SETUP-HOSTED.md) · [LOCAL](docs/SETUP-LOCAL.md)

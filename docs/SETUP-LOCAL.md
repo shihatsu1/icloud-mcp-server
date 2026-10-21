@@ -17,8 +17,8 @@ curl -LsSf https://astral.sh/uv/install.sh | sh   # or: brew install uv
 
 ## 2. Get the code (build)
 ```bash
-git clone https://github.com/shihatsu1/icloud-calendar-mcp.git
-cd icloud-calendar-mcp
+git clone https://github.com/shihatsu1/icloud-mcp-server.git
+cd icloud-mcp-server
 uv sync
 make helper        # builds bin/calendar-helper and ad-hoc signs it with an embedded Info.plist
 ```
@@ -37,8 +37,8 @@ Config file: `~/Library/Application Support/Claude/claude_desktop_config.json` (
   "mcpServers": {
     "icloud-calendar": {
       "command": "/ABSOLUTE/PATH/TO/uv",
-      "args": ["run", "--project", "/ABSOLUTE/PATH/TO/icloud-calendar-mcp",
-               "icloud-calendar-mcp", "--mode", "local"]
+      "args": ["run", "--project", "/ABSOLUTE/PATH/TO/icloud-mcp-server",
+               "icloud-mcp-server", "--mode", "local"]
     }
   }
 }
@@ -47,14 +47,14 @@ Fully quit and restart Claude Desktop. ([MCP docs: connect local servers](https:
 
 ## 5. Add to Claude Code (build)
 ```bash
-claude mcp add icloud-calendar -- /ABSOLUTE/PATH/TO/uv run --project /ABSOLUTE/PATH/TO/icloud-calendar-mcp icloud-calendar-mcp --mode local
+claude mcp add icloud-calendar -- /ABSOLUTE/PATH/TO/uv run --project /ABSOLUTE/PATH/TO/icloud-mcp-server icloud-mcp-server --mode local
 ```
 **UNVERIFIED:** confirm the `claude mcp add` syntax with `claude mcp add --help` at build time.
 
 ## 6. Turning writes on (optional)
 Reads only by default. To allow previewed-and-confirmed changes to a test calendar only:
 ```
-... icloud-calendar-mcp --mode local --allow-writes --writable-calendars TEST
+... icloud-mcp-server --mode local --allow-writes --writable-calendars TEST
 ```
 Create a calendar named `TEST` in Calendar.app first. Add real calendars to the list only when you are comfortable.
 

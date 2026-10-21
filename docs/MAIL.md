@@ -29,14 +29,14 @@ Input `{}`. Output `[{mailbox, unread, total}]`.
 ### `search_messages`
 Input: `mailbox?` (default `INBOX`), `from?`, `to?`, `subject?`, `text?`, `since?`, `before?` (dates), `unread_only?`, `limit?` (max 50), `cursor?`.
 Output: `[{message_id, mailbox, date, from:{name,address}, subject, snippet(<=200 chars), has_attachments, unread}]`, all text under `untrusted`.
-How iCloud's IMAP SEARCH behaves (text search depth, speed, limits) is **UNVERIFIED**; the build phase tests it and the tool reports when a search is truncated.
+How iCloud's IMAP SEARCH behaves (text search depth, speed, limits) is **UNVERIFIED**: Apple publishes nothing, and third-party sources conflict or describe their own sync layers (DESIGN.md §9). The build includes a read-only capability probe (server CAPABILITY and one sample search; no mail content printed) that you run once, and the tool reports when a search is truncated.
 
 ### `get_message`
 Input: `message_id`, `mailbox`.
 Output: headers (date, from, to, cc, subject, message-id, in-reply-to), **plain-text body** (HTML converted to text; truncated at about 20 KB with a `truncated: true` flag), and attachments listed by name, size and type only. Attachments are never downloaded or opened.
 
 ### `get_thread`
-Input: `message_id`, `mailbox`. Returns related messages found through `References` / `In-Reply-To` headers (summaries only; call `get_message` for bodies). Whether iCloud offers server-side threading is **UNVERIFIED**; header matching is the fallback.
+Input: `message_id`, `mailbox`. Returns related messages found through `References` / `In-Reply-To` headers (summaries only; call `get_message` for bodies). Third-party sources say iCloud has no native threading ([Nylas](https://developer.nylas.com/docs/cookbook/email/threads/list-threads-icloud/), **UNVERIFIED** against Apple), so header matching is the method, not just a fallback; threads spanning very old mail may look incomplete.
 
 ### `create_draft` (preview only)
 Input: `to[]`, `cc[]?`, `subject`, `body_text`, `in_reply_to_message_id?` (sets `In-Reply-To` / `References` for a reply). Max 20 recipients.

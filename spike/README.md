@@ -30,6 +30,8 @@ Paste the full terminal output. It contains no event content. Also tell me:
 
 To remove the grant: System Settings → Privacy & Security → Calendars → switch off or remove the entry. To reset only this binary's decision from Terminal: `tccutil reset Calendar io.github.icloud-calendar-mcp.spike`. Do **not** run `tccutil reset Calendar` without the identifier, because that resets every app's calendar permission.
 
+Note: the project was renamed to `icloud-mcp-server` after the first spike run. The spike keeps its original bundle identifier `io.github.icloud-calendar-mcp.spike` on purpose, so it matches the permission entry already on your Mac.
+
 ## What this does not test
 
 How the grant behaves when the binary is launched *by Claude Desktop* rather than by Terminal. That is the first test in Phase 4, because it needs the real server.

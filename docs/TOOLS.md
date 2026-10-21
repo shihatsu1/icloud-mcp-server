@@ -15,7 +15,8 @@ Both backends (LOCAL EventKit, HOSTED CalDAV) implement exactly these tools. Pre
 - **IDs:** `event_id` and `calendar_id` are opaque. Recurring occurrences add `occurrence_start` and `series_id`.
 - **Untrusted text:** `title`, `notes`, `location`, `url` are returned under `untrusted` and described to the model as data, never instructions.
 - **Limits:** range up to 366 days, up to 200 results per call, `cursor` for paging.
-- **Annotations:** read tools and preview tools `readOnlyHint: true`; `confirm_change` `destructiveHint: true`.
+- **Annotations:** every tool has a short `title` and both hints set (`readOnlyHint`, `destructiveHint`). Read tools and preview tools: `readOnlyHint: true`, `destructiveHint: false`. `confirm_change`: `readOnlyHint: false`, `destructiveHint: true`. Per Anthropic's connector docs, read-only tools can run without a per-call prompt and destructive tools always prompt ([source](https://claude.com/docs/connectors/building/review-criteria); behaviour for custom connectors **UNVERIFIED**). Hints must match what the code does: preview tools write nothing to the calendar, only an in-memory pending record.
+- **Read/write separation:** no tool mixes reading and writing; create, update and delete are separate tools.
 - **Write gating:** `--allow-writes` plus a `writable_calendars` allow-list. Automated tests may only write to a calendar named `TEST`.
 
 ### Shared schema fragments (JSON Schema 2020-12)

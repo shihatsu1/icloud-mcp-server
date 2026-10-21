@@ -8,19 +8,19 @@ Time: about 30 minutes.
 
 ## 1. Create an app-specific password
 1. Sign in at account.apple.com (two-factor authentication must be on).
-2. Sign-In and Security → App-Specific Passwords → generate one labelled `icloud-calendar-mcp`.
+2. Sign-In and Security → App-Specific Passwords → generate one labelled `icloud-mcp-server`.
 3. Copy it once. **Never paste it into a chat (including with Claude), a file in this repo, or a command with the value typed inline.**
 
 Source: [Apple Support](https://support.apple.com/en-us/102654) (Oct 2025). Limit: 25 active app-specific passwords. Apple's newer "authorise with your Apple Account" flow is a pilot and not available to us (DESIGN.md §4.3b).
 
 ## 2. Local development storage (Keychain)
 ```bash
-security add-generic-password -U -s icloud-calendar-mcp -a "you@icloud.com" -w
+security add-generic-password -U -s icloud-mcp-server -a "you@icloud.com" -w
 ```
 With `-w` last and no value, `security` prompts for the password, so it stays out of shell history.
 
 ## 3. Host the server (Fly.io is the current recommendation) (build)
-Price at last check: about $1.94/month for shared-cpu-1x 256 MB ([Fly pricing](https://fly.io/docs/about/pricing/)); recheck before relying on it.
+Price at last check (undated page): shared-cpu-1x is $2.19/month for 256 MB or $3.69/month for 512 MB if running continuously; no free tier, only a short trial ([Fly pricing](https://docs.fly.io/about/pricing)). Plan on 512 MB until measured. Recheck before relying on it.
 ```bash
 fly launch --no-deploy
 fly secrets import      # paste NAME=value lines on stdin, Ctrl-D; never a committed file
@@ -34,7 +34,7 @@ Create a GitHub OAuth App. The server accepts a token only if it belongs to the 
 Anthropic's [custom connector article](https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp) (undated) says Claude connects **from Anthropic's cloud**, so your server must be reachable on the public internet. Custom connectors are available on Free (limit 1), Pro, Max, Team and Enterprise.
 
 1. In claude.ai: Settings → Connectors → add a custom connector. URL: `https://<your-app>.fly.dev/mcp`. Choose OAuth sign-in. (Menu wording is provisional; check the article.)
-2. Sign in with the single allowed GitHub account when prompted.
+2. Sign in with the single allowed GitHub account when prompted. (The server's OAuth layer must allow the redirect `https://claude.ai/api/mcp/auth_callback` and answer unauthenticated calls with HTTP 401 plus a `resource_metadata` pointer; see DESIGN.md §4.2b.)
 3. Try a read first: "What's on my iCloud calendar tomorrow?"
 4. The iPhone app uses connectors added on the web (older Anthropic documentation; partly **UNVERIFIED**).
 
