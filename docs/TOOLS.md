@@ -7,6 +7,8 @@ Both backends (LOCAL EventKit, HOSTED CalDAV) implement exactly these tools. Pre
 
 > **Mail tools** (`list_mailboxes`, `search_messages`, `get_message`, `get_thread`, `create_draft`) are specified in [MAIL.md](MAIL.md). They reuse `confirm_change` below; `create_draft` is an additional action type alongside create/update/delete of events. Scope is iCloud only.
 
+> **Implementation status (2026-10-21):** the four read tools are implemented (milestones M1 and M2). Preview tools and `confirm_change` are milestone M4. Behaviour verified so far: against a fake backend and a local Radicale server, not yet against real iCloud.
+
 ## 0. Shared conventions
 
 - **Times:** ISO 8601 with offset, plus an IANA `timezone`. Every event also has `display`: its time rendered in each configured display zone (default `Asia/Tokyo` and `Asia/Manila`).
@@ -30,7 +32,7 @@ Both backends (LOCAL EventKit, HOSTED CalDAV) implement exactly these tools. Pre
     "display": {
       "type": "object",
       "additionalProperties": {"type": "string"},
-      "description": "Zone name -> human string, e.g. {\"Asia/Tokyo\": \"Thu 22 Oct 11:00-12:00 JST\"}"
+      "description": "Zone name -> human string, e.g. {\"Asia/Tokyo\": \"Thu 22 Oct 2026 11:00-12:00 JST\"}"
     },
     "recurrence": {
       "type": "object",
@@ -123,7 +125,7 @@ Example: "What's on 22 Oct?"
 {"event_id":"e9","calendar_name":"Work","all_day":false,
  "start":"2026-10-22T10:00:00+08:00","end":"2026-10-22T11:00:00+08:00",
  "timezone":"Asia/Manila","is_recurring":false,
- "display":{"Asia/Tokyo":"Thu 22 Oct 11:00-12:00 JST","Asia/Manila":"Thu 22 Oct 10:00-11:00 PHT"},
+ "display":{"Asia/Tokyo":"Thu 22 Oct 2026 11:00-12:00 JST","Asia/Manila":"Thu 22 Oct 2026 10:00-11:00 PHT"},
  "untrusted":{"title":"Client sync"}}
 ```
 
@@ -157,12 +159,12 @@ Output: eventSummary plus `untrusted.notes`, `untrusted.url`, `recurrence` (stru
 }
 ```
 
-Logic is interval subtraction over already-expanded busy occurrences. Output: `[{start, end, display}]`.
+Logic is interval subtraction over already-expanded busy occurrences (iCloud's own free/busy query returns HTTP 400, so it is never used). Output: `{slots:[{start, end, minutes, display}], note}`. Each slot is a **maximal free window** of at least `duration_minutes`; it may be longer than requested, and `note` states the assumptions (working hours, weekdays, how all-day events were treated).
 
 Example: 60 minutes, 23-24 Oct, Tokyo 09:00-18:00:
 ```json
 {"start":"2026-10-23T13:00:00+09:00","end":"2026-10-23T14:00:00+09:00",
- "display":{"Asia/Tokyo":"Fri 13:00-14:00 JST","Asia/Manila":"Fri 12:00-13:00 PHT"}}
+ "minutes":60,"display":{"Asia/Tokyo":"Fri 23 Oct 2026 13:00-14:00 JST","Asia/Manila":"Fri 23 Oct 2026 12:00-13:00 PHT"}}
 ```
 
 With `overlap_timezone: "Asia/Manila"` plus `overlap_working_hours`, only slots inside both working windows are returned.
@@ -192,7 +194,7 @@ Rules: either (`start`, `end`, `timezone`) or (`all_day: true`, `start_date`, `e
 Output:
 ```json
 {"preview":{"action":"create","calendar":"TEST","fields":{"title":"Dentist","start":"2026-11-02T15:00:00+09:00","end":"2026-11-02T16:00:00+09:00","timezone":"Asia/Tokyo"},
- "display":{"Asia/Tokyo":"Mon 2 Nov 15:00-16:00 JST","Asia/Manila":"Mon 2 Nov 14:00-15:00 PHT"},
+ "display":{"Asia/Tokyo":"Mon 2 Nov 2026 15:00-16:00 JST","Asia/Manila":"Mon 2 Nov 2026 14:00-15:00 PHT"},
  "recurrence_summary":null},
  "confirm_token":"<128-bit random>","expires_at":"2026-10-21T10:05:00+09:00"}
 ```
