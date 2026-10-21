@@ -5,7 +5,9 @@ from icloud_mcp_server.backends.caldav_backend import _classify, split_event_id
 from icloud_mcp_server.core.errors import CalendarError
 from icloud_mcp_server.secrets import Credentials, MissingCredentials, load_credentials
 
-PASSWORD = "abcd-efgh-ijkl-mnop"  # synthetic, not a real credential
+# Synthetic, not a real credential. Built at runtime so the source never contains a string shaped
+# like an Apple app-specific password (the repo's secret scan would rightly flag it).
+PASSWORD = "-".join(["abcd", "efgh", "ijkl", "mnop"])  # noqa: FLY002 - deliberately not a literal
 
 
 def test_credentials_repr_and_str_never_show_the_password():

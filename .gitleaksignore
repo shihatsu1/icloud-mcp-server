@@ -1,0 +1,4 @@
+# Historical finding in commit f782f7d: an invented placeholder password in a unit test (four groups of
+# four letters, made up by the author, never used with Apple). It is not a real credential. The test now
+# builds the string at runtime. Ignored by exact fingerprint only, so any other match still fails the scan.
+f782f7d63114c1da909123cdf0dc866100b5e044:tests/unit/test_secrets_and_errors.py:apple-app-specific-password:8
