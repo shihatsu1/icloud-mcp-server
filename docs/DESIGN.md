@@ -22,9 +22,16 @@ Convention: **UNVERIFIED** = not confirmed against current official documentatio
 | Cost | $0 | about $2-5/month plus a domain (see §6) |
 | Worst case if compromised | Anything running as your user could read your calendar | Attacker gets the password: calendar **and iCloud Mail and Contacts** |
 
-**Recommendation: build LOCAL first.** It meets every credential rule by having no credential, covers the Claude surfaces you actually named, and is where the tool layer gets proven. HOSTED waits for your decision (§8), mainly because its only extra reach is ChatGPT, and ChatGPT's write support for your plan is unconfirmed.
+**Recommendation (revised 2026-10-21): build HOSTED first; LOCAL is optional and later.** The original plan was LOCAL first. That changed when the goal became "prompt it from anywhere in Claude, including the browser and phone, plus ChatGPT":
+- Anthropic's custom-connector article says connections come from **Anthropic's cloud**, so the server must be reachable on the public internet ([support.claude.com](https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp); page undated, "updated over 2 weeks ago"). The same article says local servers configured in `claude_desktop_config.json` are not available on claude.ai. So a LOCAL server cannot serve browser Claude.
+- ChatGPT needs a public HTTPS MCP server with OAuth (§4.2).
+- LOCAL only serves apps installed on the Mac that can launch programs (Claude Desktop, Claude Code). It stays a possible later backend behind the same `CalendarBackend` interface.
 
-## 3. LOCAL mode design
+Cost accepted: HOSTED needs the app-specific password on a server (§4.5). Scope: **iCloud calendars only.** Your Mac also holds Exchange calendars; CalDAV cannot see those, and they are out of scope.
+
+## 3. LOCAL mode design (optional, later)
+
+Spike result (2026-10-21, your Mac, run from Terminal): on macOS 27.0.1 (build 26A434) a small ad-hoc-signed Swift binary with an embedded `Info.plist` triggered the Calendar prompt (status 0 to 3, full access), read 15 calendars (6 Exchange, 7 iCloud/CalDAV, 1 subscribed, 1 birthdays; 13 writable) and 19 events in the next 7 days, 16 of them recurring. Still unknown: whether the dialog named the binary or Terminal, and how the grant behaves when launched by Claude Desktop. LOCAL stays viable but is no longer first.
 
 ### 3.1 Language and structure
 Recommended: **Python MCP core (FastMCP) + a small signed Swift helper that does the EventKit calls**, rather than a pure-Swift server.
@@ -69,6 +76,9 @@ ChatGPT requires ([Apps SDK auth](https://developers.openai.com/apps-sdk/build/a
 ### 4.3 Where the password lives
 Hosting platform's secret store (encrypted at rest, injected as an env var at runtime). Never in the repo, image, logs, or `.env` files that are committed. Locally for development: macOS Keychain.
 
+### 4.3b Possible future replacement for the app-specific password
+Apple documents an alternative where a "supported" third-party app is authorised with your Apple Account instead of an app-specific password, and access is later removed under account.apple.com, Sign-In and Security, Account Data Sharing ([Apple, Oct 21 2025](https://support.apple.com/en-gb/121539)). That page does not say how an app becomes supported. In Apple's developer forum (Sep to Oct 2026) the only official answer is that a **pilot programme** exists and developers can register interest through a web form; one developer on a free account could not open the form, and another reported no reply to a request made on Oct 8 ([thread](https://developer.apple.com/forums/thread/825772)). Conclusion: **not available to us today**; the app-specific password is the only path. Revisit later; it could shrink the blast radius.
+
 ### 4.4 Hosting options
 | Option | Cost | Notes |
 |---|---|---|
@@ -106,5 +116,12 @@ Recorded 2026-10-21:
 2. **HOSTED:** will be built. You have ChatGPT Pro and ChatGPT access is worth it to you. The mail-capable-password risk in §4.5 is accepted.
 3. **Write protocol:** two-step preview/confirm approved. `--allow-writes` and calendar allow-list defaults stand.
 4. **Mac spike:** still pending your answer. It must pass before any Phase 4 code.
+
+Recorded 2026-10-21 (later):
+5. **Scope:** iCloud calendars only.
+6. **Order:** HOSTED first; LOCAL optional and later (see §2).
+7. **iCloud Mail:** wanted. v1 = read + drafts only; no send, delete or move. Design in [MAIL.md](MAIL.md). Ships after hosted calendar works, off by default.
+8. **Spike:** passed on macOS 27.0.1 (§3).
+9. **Friction:** the two-step write protocol means one extra "yes" in chat per change. A one-step mode that leans on the AI app's own approval prompt would be an opt-in, only after confirming those prompts show the exact arguments on every surface you use. No change made.
 
 **Open risk added:** whether ChatGPT **Pro** can use custom MCP connectors with write tools is **UNVERIFIED**. OpenAI's Sep 2025 announcement said Plus/Pro; later secondary sources say write MCP is Business/Enterprise/Edu only; OpenAI's help page blocked my fetches. Consequence: HOSTED ships read-only first, and writes are enabled only after you confirm in ChatGPT (Developer mode) that a write tool is allowed on your account.

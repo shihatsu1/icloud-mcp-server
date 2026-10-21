@@ -1,43 +1,44 @@
 # icloud-calendar-mcp
 
-An MCP server that lets Claude and ChatGPT use your iCloud Calendar. **Read-only by default.** Any change to your calendar is shown to you as an exact preview and applied only after a separate confirmation step.
+An MCP server that lets Claude and ChatGPT use your **iCloud** Calendar (and, later, iCloud Mail), from anywhere: browser, phone, desktop. Say "add dentist Friday 3pm" in a chat and it lands in your iCloud calendar. **Read-only by default.** Any change is shown to you as an exact preview and applied only after you confirm.
 
 > **Status: design phase. The server is not implemented yet.** What exists: design docs, the tool spec, CI, and a small macOS permission spike. Do not try to install it yet.
 
 ## Do you need this?
 
 - **iPhone:** Claude's iOS app already reads your calendar and creates events through the system Calendar (all plans; [Anthropic's help article](https://support.claude.com/en/articles/11869619-use-claude-with-ios-apps), Aug 2026). Try that first.
-- **Mac, Claude Desktop / Claude Code:** I found no official Apple Calendar integration for Desktop (check *Settings → Connectors* on your Mac first).
-- **ChatGPT:** needs a remote HTTPS MCP server with OAuth. That's what hosted mode is for.
+- **Claude in the browser and ChatGPT:** these call your server from their own clouds, so it must be a public HTTPS server with OAuth. That is what this project builds ([Anthropic](https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp), [OpenAI](https://developers.openai.com/apps-sdk/deploy/connect-chatgpt)).
 
-## Two modes
+## Modes
 
-| | LOCAL | HOSTED |
+| | HOSTED (built first) | LOCAL (optional, later) |
 |---|---|---|
-| For | Claude Desktop, Claude Code on your Mac | ChatGPT (Pro), claude.ai, Claude iPhone connectors |
-| How | stdio server + Swift EventKit helper | HTTPS server + CalDAV + OAuth |
-| Credential | **None** (macOS permission) | iCloud **app-specific password** on the server |
-| Cost | $0 | about $2/month hosting (check current pricing) |
-| Setup time | about 15 minutes if Xcode Command Line Tools are installed | about 30 minutes |
+| For | browser Claude, ChatGPT, Claude iPhone via connector | Claude Desktop, Claude Code on your Mac |
+| How | HTTPS server + CalDAV + OAuth | stdio server + Swift EventKit helper |
+| Credential | iCloud **app-specific password** on the server | **None** (macOS permission) |
+| Calendars | iCloud only | everything on the Mac |
+| Cost | about $2/month hosting (check current pricing) | $0 |
+| Setup time | about 30 minutes | about 15 minutes with Xcode Command Line Tools |
 
-Setup guides: [LOCAL](docs/SETUP-LOCAL.md) · [HOSTED](docs/SETUP-HOSTED.md)
+Guides: [HOSTED](docs/SETUP-HOSTED.md) · [LOCAL](docs/SETUP-LOCAL.md)
+
+## iCloud Mail (planned, off by default)
+v1 is **read + drafts only**: search and read mail, and create drafts in your Drafts folder. It never sends, deletes or moves mail. Mail is the main prompt-injection risk, so it is a separate opt-in module that ships after calendar works. Design: [docs/MAIL.md](docs/MAIL.md).
 
 ## Safety model
-
 - Writes are off unless the server starts with `--allow-writes`, and only for calendars you list.
-- `create_event`, `update_event` and `delete_event` only return a **preview** and a one-time token. `confirm_change` is the only tool that writes, and it re-reads the event afterwards to verify.
+- `create_event`, `update_event`, `delete_event` and `create_draft` only return a **preview** and a one-time token. `confirm_change` is the only tool that writes, and it re-reads afterwards to verify.
 - Deletes are one event (or one occurrence) at a time. There is no bulk delete.
-- Event text is returned labelled as untrusted data, to reduce prompt-injection risk. This reduces the risk; it does not remove it.
+- Event and mail text is returned labelled as untrusted data, to reduce prompt-injection risk. This reduces the risk; it does not remove it.
 
 Read [SECURITY.md](SECURITY.md) before running hosted mode: the app-specific password also opens iCloud **Mail and Contacts**.
 
 ## Docs
-
 - [docs/DESIGN.md](docs/DESIGN.md): architecture, trade-offs, blast radius
-- [docs/TOOLS.md](docs/TOOLS.md): the 8 tools with schemas and examples
+- [docs/TOOLS.md](docs/TOOLS.md): calendar tools with schemas and examples
+- [docs/MAIL.md](docs/MAIL.md): mail module design
 - [docs/TESTING.md](docs/TESTING.md): test plan
-- [spike/](spike/): 5-minute macOS permission test
+- [spike/](spike/): 5-minute macOS permission test (LOCAL mode)
 
 ## License
-
-MIT. Hosted mode depends on `recurring-ical-events` (LGPL-3.0) as an unmodified library. See [SECURITY.md](SECURITY.md) and `docs/DESIGN.md` for details.
+MIT. Hosted mode depends on `recurring-ical-events` (LGPL-3.0) as an unmodified library; see `docs/DESIGN.md`.

@@ -5,6 +5,8 @@ Status: spec for approval. Nothing is built. Written 2026-10-21.
 
 Both backends (LOCAL EventKit, HOSTED CalDAV) implement exactly these tools. Preview tools and `confirm_change` exist only when the server is started with `--allow-writes`.
 
+> **Mail tools** (`list_mailboxes`, `search_messages`, `get_message`, `get_thread`, `create_draft`) are specified in [MAIL.md](MAIL.md). They reuse `confirm_change` below; `create_draft` is an additional action type alongside create/update/delete of events. Scope is iCloud only.
+
 ## 0. Shared conventions
 
 - **Times:** ISO 8601 with offset, plus an IANA `timezone`. Every event also has `display`: its time rendered in each configured display zone (default `Asia/Tokyo` and `Asia/Manila`).

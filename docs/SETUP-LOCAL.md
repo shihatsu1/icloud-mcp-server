@@ -1,6 +1,8 @@
-# Setup: LOCAL mode (macOS)
+# Setup: LOCAL mode (macOS), optional and later
 
-Status: **draft; steps marked (build) work only once Phase 4 ships.** No password is used anywhere in this mode.
+LOCAL serves only apps installed on your Mac (Claude Desktop, Claude Code). It cannot serve browser Claude, ChatGPT or the phone; for those use [HOSTED](SETUP-HOSTED.md), which is built first. It also sees every calendar on the Mac (including Exchange), unlike hosted CalDAV.
+
+Status: **draft; steps marked (build) work only once LOCAL is built.** No password is used anywhere in this mode.
 
 Time: about 15 minutes if Xcode Command Line Tools are already installed. If not, `xcode-select --install` can take much longer.
 
