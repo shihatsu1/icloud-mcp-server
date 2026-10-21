@@ -1,0 +1,33 @@
+# Secrets and local config: never commit these
+.env
+.env.*
+!.env.example
+*.pem
+*.p12
+*.key
+secrets/
+config.local.*
+fly.toml
+claude_desktop_config.json
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+dist/
+build/
+*.egg-info/
+
+# Swift / macOS build output (helper binaries are built locally, never committed)
+.build/
+bin/
+spike/tcc_spike
+*.dSYM/
+.DS_Store
+
+# Editors
+.vscode/
+.idea/

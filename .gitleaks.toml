@@ -1,0 +1,11 @@
+title = "icloud-calendar-mcp gitleaks config"
+
+[extend]
+useDefault = true
+
+# Apple app-specific passwords look like abcd-efgh-ijkl-mnop.
+[[rules]]
+id = "apple-app-specific-password"
+description = "Possible Apple app-specific password"
+regex = '''\b[a-z]{4}-[a-z]{4}-[a-z]{4}-[a-z]{4}\b'''
+keywords = ["password", "passwd", "app-specific", "icloud"]
