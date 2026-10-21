@@ -17,11 +17,20 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-      - uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # No GITLEAKS_LICENSE needed: repository is owned by a personal account.
-          GITLEAKS_CONFIG: .gitleaks.toml
+      # Run the gitleaks CLI directly instead of gitleaks-action: the action scans
+      # <first-commit>^..HEAD, which fails on a root commit (first push). The release
+      # tarball is verified against the published checksums before use.
+      - name: Install gitleaks (checksum-verified)
+        run: |
+          v=8.30.1
+          base="https://github.com/gitleaks/gitleaks/releases/download/v${v}"
+          curl -sSfL -o gitleaks.tgz "${base}/gitleaks_${v}_linux_x64.tar.gz"
+          curl -sSfL -o checksums.txt "${base}/gitleaks_${v}_checksums.txt"
+          grep " gitleaks_${v}_linux_x64.tar.gz\$" checksums.txt \
+            | sed "s/ gitleaks_${v}_linux_x64.tar.gz/ gitleaks.tgz/" | sha256sum -c -
+          tar xzf gitleaks.tgz gitleaks
+      - name: Scan full history
+        run: ./gitleaks git --no-banner --redact -v -c .gitleaks.toml .
 
   python:
     name: Lint and unit tests
