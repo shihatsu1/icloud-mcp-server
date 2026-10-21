@@ -42,13 +42,13 @@ Anthropic's [custom connector article](https://support.claude.com/en/articles/11
 Per OpenAI's [Connect from ChatGPT](https://developers.openai.com/apps-sdk/deploy/connect-chatgpt) page: chatgpt.com/plugins → plus button → "Add custom MCP server", the same URL, authentication OAuth. ChatGPT does not accept static API keys ([Apps SDK auth](https://developers.openai.com/apps-sdk/build/auth)).
 
 1. Test read tools first.
-2. **Then test whether a write tool is allowed on your Pro plan. This is UNVERIFIED.** Writes stay off until reads work; then start with `--allow-writes --writable-calendars TEST`.
+2. **Expect read-only on a Pro plan.** OpenAI's help text (as relayed by secondary sources; the page itself was unreadable to me) limits Plus/Pro custom MCP connectors to read and fetch; write actions are Business/Enterprise/Edu. The ChatGPT connection therefore gets the `calendar.read` scope only. To add events, use Claude.
 
 ## 7. Writes: how "add this to my calendar" works
-You say it in chat. Claude or ChatGPT calls `create_event`, which returns a **preview**; the assistant shows it, you say yes, and it calls `confirm_change`. One extra "yes" per change, by design.
+You say it in a Claude chat. Claude calls `create_event`, which returns a **preview**; Claude shows it, you say yes, and it calls `confirm_change`. One extra "yes" per change, by design. ChatGPT (read-only scope) can look at your calendar but not make this call.
 
 ## 8. Mail (optional, later)
-After calendar works: start the server with `--enable-mail` (read + drafts only; see [MAIL.md](MAIL.md)).
+After calendar works: start the server with `--enable-mail` (read + drafts only; Claude only, not ChatGPT; see [MAIL.md](MAIL.md)).
 
 ## 9. Revoking
 See [SECURITY.md](../SECURITY.md#revoking-access).

@@ -67,4 +67,4 @@ Whatever the model reads (search results, bodies) is sent to the AI provider (An
 
 ## 8. Decisions needed before building
 1. Confirm v1 scope above (already chosen: read + drafts).
-2. Whether to enable mail for ChatGPT as well as Claude (mail contents then go to both providers).
+2. **Decided (recommendation, 2026-10-21): Claude only.** Mail is not exposed to ChatGPT in v1. Mail is the most sensitive data and a second provider would then see it, and on a Pro plan ChatGPT very likely cannot create drafts anyway (read/fetch only; see DESIGN.md §9).

@@ -1,6 +1,6 @@
 # icloud-mcp-server
 
-An MCP server that lets Claude and ChatGPT use your **iCloud** Calendar (and, later, iCloud Mail), from anywhere: browser, phone, desktop. Say "add dentist Friday 3pm" in a chat and it lands in your iCloud calendar. **Read-only by default.** Any change is shown to you as an exact preview and applied only after you confirm.
+An MCP server that lets Claude and ChatGPT use your **iCloud** Calendar (and, later, iCloud Mail), from anywhere: browser, phone, desktop. Say "add dentist Friday 3pm" in a Claude chat and it lands in your iCloud calendar. ChatGPT can read the calendar; on a Plus/Pro plan it very likely cannot add events (OpenAI limits those plans' custom connectors to read and fetch; see [docs/DESIGN.md](docs/DESIGN.md) §9). **Read-only by default.** Any change is shown to you as an exact preview and applied only after you confirm.
 
 > **Status: design phase. The server is not implemented yet.** What exists: design docs, the tool spec, CI, and a small macOS permission spike. Do not try to install it yet.
 
