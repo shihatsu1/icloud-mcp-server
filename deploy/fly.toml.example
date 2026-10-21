@@ -5,7 +5,7 @@ app = "CHANGE-ME-icloud-mcp"
 primary_region = "iad"   # price listed for Ashburn; Claude and ChatGPT call from US clouds
 
 [build]
-  dockerfile = "deploy/Dockerfile"
+  dockerfile = "Dockerfile"
 
 [env]
   PUBLIC_BASE_URL = "https://CHANGE-ME-icloud-mcp.fly.dev"   # must equal the URL you give Claude

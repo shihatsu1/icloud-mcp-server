@@ -75,3 +75,16 @@ def test_missing_icloud_password_is_a_clear_error_without_leaking(capsys, monkey
     assert run([], env) == 2
     err = capsys.readouterr().err
     assert "app-specific password" in err and "super-secret-value" not in err
+
+
+def test_port_defaults_to_cloud_runs_port_variable():
+    from icloud_mcp_server.__main__ import _parser
+
+    assert _parser({"PORT": "9123"}).parse_args([]).port == 9123
+    assert _parser({}).parse_args([]).port == 8080
+    assert _parser({"PORT": "9123"}).parse_args(["--port", "7000"]).port == 7000
+
+
+def test_bad_state_backend_stops_the_server_with_a_clear_error(capsys):
+    assert run([], {**GOOD, "STATE_BACKEND": "nope"}) == 2
+    assert "STATE_BACKEND" in capsys.readouterr().err

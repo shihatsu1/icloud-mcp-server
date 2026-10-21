@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from typing import Any
 from urllib.parse import urlparse
 
 from fastmcp.server.auth import AccessToken, AuthCheck, AuthContext, TokenVerifier
@@ -126,7 +127,7 @@ def owner_check(owner_id: str) -> AuthCheck:
     return check
 
 
-def build_auth(settings: AuthSettings) -> OwnerOnlyGitHubProvider:
+def build_auth(settings: AuthSettings, client_storage: Any | None = None) -> OwnerOnlyGitHubProvider:
     return OwnerOnlyGitHubProvider(
         owner_id=settings.owner_id,
         client_id=settings.github_client_id,
@@ -135,4 +136,5 @@ def build_auth(settings: AuthSettings) -> OwnerOnlyGitHubProvider:
         required_scopes=GITHUB_SCOPES,
         jwt_signing_key=settings.jwt_signing_key,
         allowed_client_redirect_uris=settings.redirect_uris,
+        client_storage=client_storage,
     )

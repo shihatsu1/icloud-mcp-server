@@ -1,5 +1,5 @@
-# Hosted iCloud MCP server. Build from the repository root:
-#   docker build -f deploy/Dockerfile -t icloud-mcp-server .
+# Hosted iCloud MCP server (Cloud Run, Fly.io or any container host). Build from the repository root:
+#   docker build -t icloud-mcp-server .
 FROM python:3.13-slim
 
 ENV PYTHONUNBUFFERED=1 \
@@ -22,4 +22,5 @@ RUN uv sync --locked --no-dev --no-editable \
 USER app
 EXPOSE 8080
 # No secrets are baked in: they arrive as environment variables from the host's secret store.
-CMD ["/app/.venv/bin/icloud-mcp-server", "--host", "0.0.0.0", "--port", "8080"]
+# The port comes from $PORT (Cloud Run sets it) and falls back to 8080.
+CMD ["/app/.venv/bin/icloud-mcp-server", "--host", "0.0.0.0"]

@@ -12,6 +12,7 @@ dependencies = [
     "recurring-ical-events>=3",
     "pydantic>=2",
     "tzdata",
+    "py-key-value-aio[firestore,wrappers-encryption]>=0.4.6,<0.5",
 ]
 
 [project.scripts]

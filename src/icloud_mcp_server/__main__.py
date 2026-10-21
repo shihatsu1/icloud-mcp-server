@@ -17,16 +17,18 @@ from .config import Settings
 from .core.service import CalendarService
 from .secrets import MissingCredentials, load_credentials
 from .server import build_server
+from .state import build_client_storage
 
 LOOPBACK = {"127.0.0.1", "localhost", "::1"}
 
 
-def _parser() -> argparse.ArgumentParser:
+def _parser(env: Mapping[str, str] | None = None) -> argparse.ArgumentParser:
+    env = os.environ if env is None else env
     p = argparse.ArgumentParser(
         prog="icloud-mcp-server", description="iCloud calendar MCP server (read-only in this version)."
     )
     p.add_argument("--host", default="127.0.0.1", help="bind address (the container uses 0.0.0.0)")
-    p.add_argument("--port", type=int, default=8080)
+    p.add_argument("--port", type=int, default=int(env.get("PORT", "8080")), help="default: $PORT or 8080")
     p.add_argument("--dev-no-auth", action="store_true", help="NO authentication; localhost only")
     p.add_argument("--allow-writes", action="store_true", help="not available yet (milestone M4)")
     p.add_argument("--writable-calendars", default="", help="used together with --allow-writes")
@@ -53,7 +55,11 @@ def build(args: argparse.Namespace, env: Mapping[str, str]):
             auth_settings = AuthSettings.from_env(env)
         except AuthConfigError as exc:
             raise ValueError(f"Authentication is not configured: {exc}.") from None
-        auth = build_auth(auth_settings)
+        try:
+            storage = build_client_storage(env, auth_settings.jwt_signing_key)
+        except AuthConfigError as exc:
+            raise ValueError(f"Authentication is not configured: {exc}.") from None
+        auth = build_auth(auth_settings, storage)
         tool_auth = owner_check(auth_settings.owner_id)
 
     try:
@@ -67,8 +73,8 @@ def build(args: argparse.Namespace, env: Mapping[str, str]):
 
 
 def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None) -> int:
-    args = _parser().parse_args(argv)
     env = os.environ if env is None else env
+    args = _parser(env).parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     try:
         server = build(args, env)

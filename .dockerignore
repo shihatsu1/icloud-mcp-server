@@ -12,3 +12,4 @@ docs
 fly.toml
 *.pem
 *.key
+deploy

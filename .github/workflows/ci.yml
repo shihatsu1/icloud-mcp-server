@@ -61,7 +61,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - run: docker build -f deploy/Dockerfile -t icloud-mcp-server:ci .
+      - run: docker build -t icloud-mcp-server:ci .
       - name: Refuses to start without configuration
         run: |
           set +e
