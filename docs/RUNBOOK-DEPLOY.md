@@ -1,4 +1,6 @@
-# Runbook: deploy the hosted server (read-only)
+# Runbook: deploy on Fly.io (paid alternative), read-only
+
+> The free route is [RUNBOOK-CLOUDRUN.md](RUNBOOK-CLOUDRUN.md). Use this page only if Cloud Run does not work out. On Fly the server fits the 256 MB machine (about $2.19/month; it peaked near 91 MB right after start-up in a sandbox measurement, not measured under load), so you can set `memory = "256mb"` in `fly.toml` and recheck with `fly logs` for out-of-memory restarts.
 
 Status: written 2026-10-21 for milestone M3. **Nothing here has been run against real GitHub, Fly.io, iCloud, Claude or ChatGPT**: the code was tested with fakes and a local CalDAV server. The first real deployment is the first real test, so expect to fix small things. Report what you see and I will help.
 

@@ -1,6 +1,6 @@
 # Setup: HOSTED mode (browser Claude, ChatGPT, iPhone connector)
 
-This is the **primary** setup. The step-by-step procedure is in [RUNBOOK-DEPLOY.md](RUNBOOK-DEPLOY.md); this page is the overview. Status: the read-only server exists (milestones M1 to M3); writes and mail do not yet.
+This is the **primary** setup. The step-by-step procedure for the free route is [RUNBOOK-CLOUDRUN.md](RUNBOOK-CLOUDRUN.md) (Google Cloud Run); [RUNBOOK-DEPLOY.md](RUNBOOK-DEPLOY.md) is the paid Fly.io alternative. This page is the overview, and its Fly.io-specific sections are the alternative route. Status: the read-only server exists (milestones M1 to M3); writes and mail do not yet.
 
 Read [SECURITY.md](../SECURITY.md) first. The credential here also opens iCloud **Mail and Contacts**. Mail tools are a separate opt-in module (see [MAIL.md](MAIL.md)); they add prompt-injection risk, not a new credential.
 

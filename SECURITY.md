@@ -5,11 +5,12 @@
 | Item | LOCAL mode | HOSTED mode |
 |---|---|---|
 | Apple ID password | **Never used, never stored** | **Never used, never stored** |
-| App-specific password | Not used | Hosting platform's secret store (e.g. `fly secrets`); macOS Keychain on your Mac for development only |
+| App-specific password | Not used | Hosting platform's secret store: Google Secret Manager on Cloud Run (mounted as an environment variable; the deploy script pipes it in over stdin, never on a command line), or `fly secrets` on Fly.io; macOS Keychain on your Mac for development only |
 | Calendar data | Read live from macOS Calendar; not cached to disk | Read live from iCloud over CalDAV; not cached to disk |
 | Pending write tokens | In memory; lost on restart | In memory; lost on restart |
 | OAuth tokens (hosted) | n/a | Issued by the identity provider; the server validates them and stores none beyond what the framework needs (to be confirmed at build time) |
-| Logs | No credentials, no event titles or notes | Same |
+| OAuth state (hosted) | n/a | Client registrations and tokens in Firestore on Cloud Run (or a volume on Fly.io), **encrypted** with a key derived from your signing key before they are stored; Google only holds ciphertext |
+| Logs | No credentials, no event titles or notes | Same. Uvicorn's access log is off because OAuth callback URLs carry one-time codes |
 
 The repository must never contain credentials. `.gitignore` excludes env files, keys and local configs, and CI runs [gitleaks](https://github.com/gitleaks/gitleaks) over the full history on every push. GitHub push protection for users is on by default for personal accounts on github.com. Enable repository secret scanning in the repo settings as well.
 
@@ -28,6 +29,8 @@ It does not reveal your Apple ID password. Whether it reaches other iCloud data 
 - **Data leaves your account.** Anything the model reads is sent to the AI provider (Anthropic or OpenAI) under their terms. The server limits result sizes and logs no mail content.
 
 **A possible future improvement:** Apple documents an authorisation flow that avoids app-specific passwords, but it is a pilot for "supported" apps with no published way for us to qualify ([Apple developer forum](https://developer.apple.com/forums/thread/825772), Sep to Oct 2026). Not available today.
+
+**Cloud Run specifics:** the service is publicly reachable (Claude and ChatGPT cannot present Google credentials), so access control rests entirely on the app's OAuth layer, which only accepts your numeric GitHub user ID. Your Google project and account are now part of the trust chain for the app-specific password: anyone with access to the project's Secret Manager could read it, so protect the Google account with two-factor authentication. The service account has only Firestore access and read access to three secrets.
 
 LOCAL mode has no such credential. Its exposure is limited to whatever can run as your macOS user.
 
