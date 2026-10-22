@@ -76,11 +76,14 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     env = os.environ if env is None else env
     args = _parser(env).parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    log = logging.getLogger("icloud_mcp_server.startup")
+    log.info("startup: imports done")  # with Cloud Run's "Starting new instance" time, shows where a cold start goes
     try:
         server = build(args, env)
     except ValueError as exc:
         print(f"icloud-mcp-server: {exc}", file=sys.stderr)
         return 2
+    log.info("startup: server built, about to listen")
     if args.dev_no_auth:
         print("WARNING: running WITHOUT authentication on localhost (development only).", file=sys.stderr)
     # access_log off: OAuth callback URLs carry one-time codes and must not be written to logs

@@ -6,7 +6,9 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
-    FASTMCP_HOME=/data
+    FASTMCP_HOME=/data \
+    FASTMCP_CHECK_FOR_UPDATES=off \
+    FASTMCP_SHOW_SERVER_BANNER=false
 
 # Pinned installer; dependencies come from the committed uv.lock
 RUN pip install --no-cache-dir uv==0.11.32 \

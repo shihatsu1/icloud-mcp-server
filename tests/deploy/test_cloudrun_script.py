@@ -125,3 +125,10 @@ def test_env_var_delimiter_does_not_occur_in_any_value(run_script):
     assert env["ICLOUD_APPLE_ID"] == APPLE_ID
     assert env["DISPLAY_TIMEZONES"] == "Asia/Tokyo,Asia/Manila"
     assert all("=" in pair for pair in pairs)
+
+
+def test_dockerfile_turns_off_startup_network_check_and_banner():
+    # The PyPI update check runs on every cold start; Claude gives OAuth endpoints only 10 seconds.
+    text = (REPO / "Dockerfile").read_text()
+    assert "FASTMCP_CHECK_FOR_UPDATES=off" in text
+    assert "FASTMCP_SHOW_SERVER_BANNER=false" in text
