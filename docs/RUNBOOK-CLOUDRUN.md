@@ -41,7 +41,7 @@ If a command fails, read its message, fix it, and re-run; the script is safe to 
 ## 6. Check it, including the cold start
 ```bash
 URL=https://SERVICE-PROJECT_NUMBER.us-central1.run.app     # printed by the script
-curl -s -o /dev/null -w '%{http_code}\n' $URL/healthz                  # expect 200
+curl -s -o /dev/null -w '%{http_code}\n' $URL/ping                  # expect 200
 curl -si -X POST $URL/mcp | head -5                                    # expect 401 and a WWW-Authenticate header
 ```
 Then measure a **cold** start: wait about 20 minutes with no traffic, then run

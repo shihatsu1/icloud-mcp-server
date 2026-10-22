@@ -102,3 +102,26 @@ def test_a_generated_signing_key_is_created_once_and_not_printed(run_script):
     key_blocks = [b for b in stdin.split("--- ") if b.startswith("secrets create icloud-mcp-jwt-signing-key")]
     assert key_blocks and len(key_blocks[0].splitlines()[1]) >= 32
     assert key_blocks[0].splitlines()[1] not in result.stdout
+
+
+def test_apis_are_enabled_before_any_secret_is_written(run_script):
+    # Real run 1 failed because Secret Manager was written to before its API was enabled.
+    _result, args, _stdin = run_script()
+    lines = args.splitlines()
+    enabled = next(i for i, line in enumerate(lines) if line.startswith("services enable"))
+    first_secret = next(i for i, line in enumerate(lines) if line.startswith("secrets create"))
+    assert enabled < first_secret
+
+
+def test_env_var_delimiter_does_not_occur_in_any_value(run_script):
+    # Real run 2 failed because the gcloud list delimiter was "@", which an email address contains.
+    _result, args, _stdin = run_script()
+    deploy = next(line for line in args.splitlines() if line.startswith("run deploy"))
+    flag = deploy.split("--set-env-vars ", 1)[1].split(" --set-secrets", 1)[0]
+    assert flag.startswith("^") and flag[1:].count("^") >= 1, "a custom delimiter is expected: values contain commas"
+    delimiter, body = flag[1:].split("^", 1)
+    pairs = body.split(delimiter)
+    env = dict(pair.split("=", 1) for pair in pairs)
+    assert env["ICLOUD_APPLE_ID"] == APPLE_ID
+    assert env["DISPLAY_TIMEZONES"] == "Asia/Tokyo,Asia/Manila"
+    assert all("=" in pair for pair in pairs)

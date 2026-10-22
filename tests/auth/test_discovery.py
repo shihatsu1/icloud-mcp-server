@@ -93,5 +93,5 @@ async def test_token_endpoint_accepts_form_encoding_and_reports_oauth_errors(cli
 
 
 async def test_health_endpoint_is_open_and_reveals_nothing(client):
-    resp = await client.get("/healthz")
+    resp = await client.get("/ping")
     assert resp.status_code == 200 and resp.text == "ok"

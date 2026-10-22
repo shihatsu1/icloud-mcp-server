@@ -59,7 +59,7 @@ JWT_SIGNING_KEY=<output of openssl rand>
 ## 6. Deploy and check
 ```bash
 fly deploy --app <app>
-curl -i https://<app>.fly.dev/healthz        # expect: 200 ok
+curl -i https://<app>.fly.dev/ping        # expect: 200 ok
 curl -i -X POST https://<app>.fly.dev/mcp    # expect: 401 and a WWW-Authenticate header with resource_metadata
 fly logs --app <app>                         # no credentials or event text should ever appear
 ```

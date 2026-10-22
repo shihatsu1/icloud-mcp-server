@@ -59,16 +59,16 @@ echo "  Homepage URL:                ${BASE_URL}"
 echo "  Authorization callback URL:  ${BASE_URL}/auth/callback"
 read -r -p "Press Enter when the OAuth App exists (you will paste its Client ID and secret next)... " _
 
+say "Enabling Google Cloud APIs (can take a minute)"
+gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com \
+  secretmanager.googleapis.com firestore.googleapis.com billingbudgets.googleapis.com --project "$PROJECT_ID"
+
 say "Details (the secrets are hidden and go straight to Secret Manager)"
 ask GITHUB_CLIENT_ID "GitHub OAuth App Client ID"
 ask ALLOWED_GITHUB_USER_ID "Your numeric GitHub user ID"
 ask ICLOUD_APPLE_ID "Your Apple Account email (the iCloud address)"
 ask_secret "$S_GITHUB_SECRET" "GitHub OAuth App Client secret"
 ask_secret "$S_APP_PASSWORD" "iCloud app-specific password (NOT your Apple ID password)"
-
-say "Enabling Google Cloud APIs (can take a minute)"
-gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com \
-  secretmanager.googleapis.com firestore.googleapis.com billingbudgets.googleapis.com --project "$PROJECT_ID"
 
 say "Firestore database (holds encrypted OAuth sign-in state)"
 if ! gcloud firestore databases describe --project "$PROJECT_ID" >/dev/null 2>&1; then
@@ -97,7 +97,7 @@ gcloud run deploy "$SERVICE" --project "$PROJECT_ID" --region "$REGION" --source
   --allow-unauthenticated \
   --max-instances 1 --min-instances 0 \
   --memory 512Mi --cpu 1 --cpu-boost --timeout 300 \
-  --set-env-vars "^@^PUBLIC_BASE_URL=${BASE_URL}@ICLOUD_APPLE_ID=${ICLOUD_APPLE_ID}@GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID}@ALLOWED_GITHUB_USER_ID=${ALLOWED_GITHUB_USER_ID}@STATE_BACKEND=firestore@GOOGLE_CLOUD_PROJECT=${PROJECT_ID}@DEFAULT_TIMEZONE=Asia/Tokyo@DISPLAY_TIMEZONES=Asia/Tokyo,Asia/Manila" \
+  --set-env-vars "^|^PUBLIC_BASE_URL=${BASE_URL}|ICLOUD_APPLE_ID=${ICLOUD_APPLE_ID}|GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID}|ALLOWED_GITHUB_USER_ID=${ALLOWED_GITHUB_USER_ID}|STATE_BACKEND=firestore|GOOGLE_CLOUD_PROJECT=${PROJECT_ID}|DEFAULT_TIMEZONE=Asia/Tokyo|DISPLAY_TIMEZONES=Asia/Tokyo,Asia/Manila" \
   --set-secrets "ICLOUD_APP_PASSWORD=${S_APP_PASSWORD}:latest,GITHUB_CLIENT_SECRET=${S_GITHUB_SECRET}:latest,JWT_SIGNING_KEY=${S_JWT_KEY}:latest"
 
 say "Cost guard: a \$1 budget alert (best effort; check it exists in the console)"
@@ -114,6 +114,6 @@ else
 fi
 
 say "Done. Checks to run now:"
-echo "  curl -s -o /dev/null -w '%{http_code}\n' ${BASE_URL}/healthz        # expect 200"
+echo "  curl -s -o /dev/null -w '%{http_code}\n' ${BASE_URL}/ping        # expect 200"
 echo "  curl -si -X POST ${BASE_URL}/mcp | head -5                          # expect 401 + WWW-Authenticate"
 echo "  Then add ${BASE_URL}/mcp as a custom connector in Claude (docs/RUNBOOK-CLOUDRUN.md)."

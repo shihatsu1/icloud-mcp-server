@@ -51,8 +51,8 @@ def build_server(
         mask_error_details=True,  # unexpected errors never leak internals; CalendarError text passes
     )
 
-    @mcp.custom_route("/healthz", methods=["GET"])
-    async def healthz(_request):
+    @mcp.custom_route("/ping", methods=["GET"])
+    async def ping(_request):
         from starlette.responses import PlainTextResponse
 
         return PlainTextResponse("ok")
