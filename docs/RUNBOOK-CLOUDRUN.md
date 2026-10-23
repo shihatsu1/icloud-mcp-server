@@ -77,6 +77,9 @@ chatgpt.com/plugins → plus → Add custom MCP server → the same URL, OAuth (
 | Claude can't reach the server, only after idle | Cold start longer than 10 s (step 6) |
 | Sign-in fails at GitHub | Callback URL in the OAuth App is not exactly `$URL/auth/callback` |
 | Signed in, but no tools appear | Wrong GitHub account (the server hides all tools from non-owners) |
+| Worked, then "Reconnect" the next morning; logs show `bad_refresh_token` | GitHub "Token expiration" is on for the OAuth App: opt out on its Optional features tab, then reconnect once |
+| "Invalid or expired authorization transaction" right after a good sign-in | The callback page was reloaded or opened twice; the first one succeeded, check the connector list |
+| Internal server error on `/authorize`, logs mention "lacks a collection id" | Fixed in commit `df588d9` (storage keys are hashed); redeploy if you see it on an older revision |
 | `CREDENTIALS_REJECTED` | App-specific password revoked or mistyped, or your Apple Account password changed (that revokes all of them) |
 | Deploy fails on permissions or billing | Billing not linked, or an API still enabling; re-run |
 | Asked to sign in again after idle | Firestore state not working; check Cloud Run logs for Firestore errors |

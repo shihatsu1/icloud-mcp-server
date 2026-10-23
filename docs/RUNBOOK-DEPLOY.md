@@ -37,6 +37,8 @@ GitHub → Settings → Developer settings → OAuth Apps → New OAuth App (men
 
 The server asks GitHub only for the `read:user` scope (identity). It never reads your repositories.
 
+**Opt out of token expiration (do this before the first sign-in).** On the app's **Optional features** tab, if "Token expiration" is on, click **Opt-out** (afterwards the button reads "Opt-in"). With it on, GitHub's access tokens last 8 hours and the server must refresh them; found on 2026-10-23, that refresh failed overnight with `bad_refresh_token` and the connector showed "Reconnect". With it off, tokens do not expire. Existing tokens are not affected, so reconnect once after changing it.
+
 ## 4. Create the app-specific password
 account.apple.com → Sign-In and Security → App-Specific Passwords → generate one labelled `icloud-mcp-server`. Keep the window open until step 5 is done. ([Apple Support](https://support.apple.com/en-us/102654))
 
