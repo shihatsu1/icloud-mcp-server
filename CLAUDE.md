@@ -33,3 +33,21 @@ github.com/shihatsu1/icloud-mcp-server. Design: `docs/DESIGN.md`; tool spec: `do
 - Reloading the OAuth callback page shows "Invalid or expired authorization transaction"; the first load already succeeded.
 - `gcloud billing budgets create` fails in `deploy.sh`; budgets were made by hand (billing account is in JPY).
 - Browser steps need the Claude in Chrome extension connected.
+- iCloud answers python-caldav's UID query (`event_by_uid`, `search(uid=...)`) with `412 Precondition Failed` for EVERY event, so events are fetched by address (`CalDavBackend._event_by_uid`: remembered address, then `<UID>.ics`, then a scan). Radicale does not show this, so the opt-in integration run against real iCloud is what catches iCloud-only bugs.
+- python-caldav 3.5: mutating `obj.icalendar_instance` then `obj.save()` persists; `edit_icalendar_instance()` needs an explicit `save()` too; `event_by_url(url).load()` works on iCloud.
+- Name preview tools `preview_*`. claude.ai's automatic permission check blocked a tool named `create_event` because it sounded like a write (it only previews).
+- Events with guests or invitations are refused for update/delete (`HAS_GUESTS`): iCloud may email guests, and attendees are not supported.
+
+## Writes (milestone M4, live since 2026-10-23)
+- Tools: `preview_create_event`, `preview_update_event`, `preview_delete_event` (never write) and `confirm_change` (the only write: single-use 5-minute token, version re-check, re-read and compare). Details in `docs/TOOLS.md`.
+- Off by default. `ALLOW_WRITES=true` plus `WRITABLE_CALENDARS=<names>`; startup refuses writes with no calendar named or with `--dev-no-auth`. Live setting: TEST, Personal, Work, School, Church. MLBB and Calendar are deliberately read-only.
+- Real-iCloud tests only ever touch the calendar named exactly `TEST`: `scripts/create_test_calendar.py` (a write to the real account; ask first), then `ICLOUD_APPLE_ID=<id> uv run pytest -m integration tests/integration -q`.
+- Deferred on purpose: attendees/invites, `respond_to_event`, per-scope OAuth for ChatGPT, Mail.
+
+## Operating the live system
+- Deploy (the user runs it with `!`; Claude Code's classifier blocks Claude): `gcloud run deploy icloud-mcp-server --source . --region us-central1 --project icloud-mcp-512404`. To change env vars whose value has commas, use the alternate delimiter: `--update-env-vars "^|^WRITABLE_CALENDARS=TEST,Personal,Work,School,Church"`.
+- After a deploy: claude.ai keeps the old tool list until Customize > Connectors > iCloud Calendar > ⋮ > Refresh tools list. Read-only verification afterwards: `gcloud run services describe …`, then a short-window `gcloud logging read` (redact `code=`/`state=`).
+- Warm ping: Cloud Scheduler job `icloud-mcp-warm-ping` (GET `/ping` every 5 minutes, us-central1) keeps the instance warm so Claude's OAuth calls avoid 7-22 s cold starts (limit 10 s). Created by the user (the classifier blocks Claude from creating scheduled jobs). Its free-tier fit is UNVERIFIED; check the bill monthly, delete with `gcloud scheduler jobs delete icloud-mcp-warm-ping --location us-central1 --project icloud-mcp-512404`.
+- Each deploy leaves an image, a source zip and a revision. Clean up, keeping the running ones: `gcloud artifacts docker images delete <repo>/icloud-mcp-server@<digest> --delete-tags --quiet`, `gcloud storage rm gs://run-sources-icloud-mcp-512404-us-central1/services/icloud-mcp-server/<old>.zip`, `gcloud run revisions delete <old> --region us-central1 --quiet`. Compare against `gcloud run services describe … --format='value(spec.template.spec.containers[0].image)'` first.
+- Claude Code's Bash tool blocks foreground `sleep`; wait with a bounded `until` loop run in the background.
+- Driving claude.ai in Chrome: typing into the chat box can drop everything after the first word (select all, delete and retype); single waits are capped at 10 s; the reply box is near the bottom centre; a first call after a redeploy can take 45 s. Do not type approvals on the user's behalf without their say-so: a safety-check block in claude.ai is the user's to clear.
