@@ -57,6 +57,33 @@ async def test_firestore_path_stores_only_ciphertext_and_wrong_key_reads_as_miss
     assert await wrong.get("client-1", collection="c") is None  # a rotated key just means re-register
 
 
+class SlashRejectingStore(MemoryStore):
+    """Firestore reads each '/' in a document name as a path separator and rejects it."""
+
+    async def get(self, key, *, collection=None):
+        assert "/" not in key, f"Firestore would reject this document name: {key}"
+        return await super().get(key, collection=collection)
+
+    async def put(self, key, value, *, collection=None, ttl=None):
+        assert "/" not in key, f"Firestore would reject this document name: {key}"
+        return await super().put(key, value, collection=collection, ttl=ttl)
+
+    async def delete(self, key, *, collection=None):
+        assert "/" not in key, f"Firestore would reject this document name: {key}"
+        return await super().delete(key, collection=collection)
+
+
+async def test_url_client_ids_work_because_keys_are_hashed_before_firestore():
+    # Claude's client ID is a URL; the real deploy failed with "Document name ... lacks a collection id".
+    url_id = "https://claude.ai/oauth/mcp-oauth-client-metadata"
+    wrapped = build_client_storage({"STATE_BACKEND": "firestore"}, KEY, lambda _env: SlashRejectingStore())
+    assert await wrapped.get(url_id, collection="clients") is None
+    await wrapped.put(url_id, {"client_name": "Claude"}, collection="clients")
+    assert (await wrapped.get(url_id, collection="clients"))["client_name"] == "Claude"
+    assert await wrapped.delete(url_id, collection="clients") is True
+    assert await wrapped.get(url_id, collection="clients") is None
+
+
 async def test_registered_client_survives_a_restart_with_firestore_style_storage(tmp_path, monkeypatch):
     monkeypatch.setenv("FASTMCP_HOME", str(tmp_path))
     settings = AuthSettings(BASE, "fake-client-id", "fake-client-secret", OWNER, KEY)

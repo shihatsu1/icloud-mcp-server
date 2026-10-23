@@ -15,8 +15,10 @@ from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urlparse
 
+from authlib.integrations.base_client.errors import OAuthError
 from fastmcp.server.auth import AccessToken, AuthCheck, AuthContext, TokenVerifier
 from fastmcp.server.auth.providers.github import GitHubProvider
+from mcp.server.auth.provider import TokenError
 
 log = logging.getLogger("icloud_mcp_server.auth")
 
@@ -114,6 +116,16 @@ class OwnerOnlyGitHubProvider(GitHubProvider):
     def __init__(self, *, owner_id: str, **kwargs):
         super().__init__(**kwargs)
         self._token_validator = OwnerOnlyVerifier(self._token_validator, owner_id)
+
+    async def exchange_refresh_token(self, client, refresh_token, scopes):
+        # GitHub answers a spent or expired refresh token with "bad_refresh_token". FastMCP turns only
+        # "invalid_grant" into a clean "sign in again" reply and lets anything else become a 500, which
+        # Claude shows as a broken connector. Map every upstream refusal to invalid_grant.
+        try:
+            return await super().exchange_refresh_token(client, refresh_token, scopes)
+        except OAuthError as exc:
+            log.warning("upstream refresh refused (%s); asking the client to sign in again", exc.error)
+            raise TokenError("invalid_grant", "Upstream refresh token was rejected") from exc
 
 
 def owner_check(owner_id: str) -> AuthCheck:
