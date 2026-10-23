@@ -375,3 +375,15 @@ def test_the_service_checks_the_version_itself_even_if_the_backend_does_not(svc,
     real("e9", {"title": "Theirs"}, scope="whole", occurrence_start=None, expected_version=None)
     assert code(svc.confirm_change, token) == "CONFLICT"
     assert backend.get_event("e9").title == "Theirs"
+
+
+# ---- guests: changing them could email people, so it is refused ----------------------------------
+
+
+def test_events_with_guests_cannot_be_changed_or_deleted(svc, backend):
+    backend.events[0] = type(backend.events[0])(**{**backend.events[0].__dict__, "attendees": ("friend@example.com",)})
+    assert code(svc.preview_update, "e9", {"title": "x"}) == "HAS_GUESTS"
+    assert code(svc.preview_delete, "e9") == "HAS_GUESTS"
+    with pytest.raises(CalendarError) as err:
+        svc.preview_delete("e9")
+    assert "email" in err.value.message and "friend@example.com" not in err.value.message  # no address echoed

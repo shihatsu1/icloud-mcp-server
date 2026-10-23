@@ -324,3 +324,16 @@ def test_an_event_whose_file_name_is_not_its_uid_is_still_found_by_scanning(svc,
     svc.backend._urls.clear()
     cid = next(c.calendar_id for c in svc.backend.list_calendars() if c.calendar_name == "Work")
     assert svc.get_event(f"{cid}~odd-uid-1").untrusted.title == "Client sync"
+
+
+def test_an_event_with_guests_is_refused_on_a_real_server_too(svc, parts):
+    _backend, work = parts
+    guest_event = fx.CLIENT_SYNC.replace("sync-1", "guests-1").replace(
+        "SUMMARY:Client sync", "SUMMARY:Lunch\nORGANIZER:mailto:me@example.com\nATTENDEE:mailto:friend@example.com"
+    )
+    work.save_event(fx.wrap(guest_event))
+    cid = _cid(svc)
+    for call in (lambda: svc.preview_update(f"{cid}~guests-1", {"title": "x"}), lambda: svc.preview_delete(f"{cid}~guests-1")):
+        with pytest.raises(CalendarError) as err:
+            call()
+        assert err.value.code == "HAS_GUESTS"

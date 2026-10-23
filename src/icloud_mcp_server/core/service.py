@@ -286,6 +286,16 @@ class CalendarService:
             )
         return cal
 
+    @staticmethod
+    def _refuse_guests(event: Event) -> None:
+        """Changing or deleting an event with guests can make iCloud email them, so it is never done here."""
+        if event.attendees:
+            raise CalendarError(
+                "HAS_GUESTS",
+                f"'{clean(event.title, MAX_TITLE)}' has {len(event.attendees)} guest(s) or is an invitation. "
+                "Changing or deleting it could send email to the guests, which this server does not do.",
+            )
+
     def _fields(self, event: Event) -> dict:
         c = self._common(event)
         return {
@@ -384,6 +394,7 @@ class CalendarService:
             return found
         master, target, kind, occ = found
         self._writable_calendar(master.calendar_id)
+        self._refuse_guests(master)
         norm = normalize_changes(target, changes, self.default_tz, allow_recurrence=kind == "whole")
         after = apply_changes(target, norm)
         changed = [k for k in CHANGE_KEYS if self._differs(target, after, k, norm)]
@@ -436,6 +447,7 @@ class CalendarService:
             return found
         master, target, kind, occ = found
         self._writable_calendar(master.calendar_id)
+        self._refuse_guests(master)
         if master.is_recurring and kind == "whole":
             warning = "This deletes the whole series: every occurrence, including past ones."
         elif master.is_recurring:
