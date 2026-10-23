@@ -27,7 +27,7 @@ v1 is **read + drafts only**: search and read mail, and create drafts in your Dr
 
 ## Safety model
 - Writes are off unless the server starts with `--allow-writes`, and only for calendars you list.
-- `create_event`, `update_event`, `delete_event` and `create_draft` only return a **preview** and a one-time token. `confirm_change` is the only tool that writes, and it re-reads afterwards to verify.
+- `preview_create_event`, `preview_update_event`, `preview_delete_event` and `create_draft` only return a **preview** and a one-time token. `confirm_change` is the only tool that writes, and it re-reads afterwards to verify.
 - Deletes are one event (or one occurrence) at a time. There is no bulk delete.
 - Event and mail text is returned labelled as untrusted data, to reduce prompt-injection risk. This reduces the risk; it does not remove it.
 

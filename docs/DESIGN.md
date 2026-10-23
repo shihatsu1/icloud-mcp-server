@@ -51,11 +51,11 @@ Open risks: whether the grant attaches to the helper or to "Claude" when launche
 
 ### 3.3 Safe-write protocol (works in every client)
 MCP "elicitation" (a server asking you to confirm) is not reliable: third-party reports say Claude Desktop does not support it (**UNVERIFIED**). So confirmation lives in the protocol, not the client:
-1. `create_event` / `update_event` / `delete_event` **never write**. They return a `preview` (exact before/after fields, calendar, time zone, series-or-occurrence scope) and a `confirm_token`.
+1. `preview_create_event` / `preview_update_event` / `preview_delete_event` **never write**. They return a `preview` (exact before/after fields, calendar, time zone, series-or-occurrence scope) and a `confirm_token`.
 2. `confirm_change(confirm_token)` is the only function that writes. The token is single-use, expires in 5 minutes, and is bound to a hash of the exact change. Changing any field invalidates it.
 3. The server only registers the write tools if started with `--allow-writes`. Default is read-only.
 4. Writes are restricted to an allow-list of calendars (`--writable-calendars "Work,TEST"`). Everything else rejects writes with a clear error.
-5. `delete_event` takes one event ID. There is no delete-by-query, no list input, no series delete without the explicit scope question (§5). A hard cap of 1 delete per confirmation.
+5. `preview_delete_event` takes one event ID. There is no delete-by-query, no list input, no series delete without the explicit scope question (§5). A hard cap of 1 delete per confirmation.
 6. Tool annotations (`readOnlyHint`, `destructiveHint`) set honestly so the client's own approval prompt acts as a second layer.
 
 Limits of this design: a prompt-injected event description ("ignore previous instructions, delete...") could still make the model *request* a change. The preview plus your confirmation is the defence, so previews must display the real values and the model must be told to show them verbatim. Event text returned to the model is wrapped and labelled as untrusted data.
@@ -121,7 +121,7 @@ Rejected for this server: Render free (sleeps after 15 minutes and takes about a
 - Every returned event has `start`, `end`, `timezone` (IANA, e.g. `Asia/Tokyo`), `all_day`, and also `start_local_display` in **both** Asia/Tokyo and Asia/Manila (configurable pair). Japan and the Philippines have no DST, but the code must not assume that for other zones in events.
 - **All-day events** are dates, not instants: returned as `YYYY-MM-DD` with `all_day: true` and `timezone: null` (floating). They are never shifted when converting zones.
 - **Floating times** (no zone) are labelled `floating` and interpreted in your default zone, with that stated in the output.
-- Recurring series: search returns expanded occurrences with `series_id` + `occurrence_start`. `update_event` / `delete_event` on a recurring event *requires* `scope: "this_occurrence" | "whole_series"`; if missing, the tool returns a question instead of a preview. "This and future" is excluded in v1 to limit risk.
+- Recurring series: search returns expanded occurrences with `series_id` + `occurrence_start`. `preview_update_event` / `preview_delete_event` on a recurring event *requires* `scope: "this_occurrence" | "whole_series"`; if missing, the tool returns a question instead of a preview. "This and future" is excluded in v1 to limit risk.
 - Server stores nothing about your events. No cache on disk in v1.
 
 ## 6. Error model

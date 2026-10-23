@@ -45,7 +45,7 @@ Per OpenAI's [Connect from ChatGPT](https://developers.openai.com/apps-sdk/deplo
 2. **Expect read-only on a Pro plan.** OpenAI's help text (as relayed by secondary sources; the page itself was unreadable to me) limits Plus/Pro custom MCP connectors to read and fetch; write actions are Business/Enterprise/Edu. The ChatGPT connection therefore gets the `calendar.read` scope only. To add events, use Claude.
 
 ## 7. Writes: how "add this to my calendar" works
-You say it in a Claude chat. Claude calls `create_event`, which returns a **preview**; Claude shows it, you say yes, and it calls `confirm_change`. One extra "yes" per change, by design. ChatGPT (read-only scope) can look at your calendar but not make this call.
+You say it in a Claude chat. Claude calls `preview_create_event`, which returns a **preview**; Claude shows it, you say yes, and it calls `confirm_change`. One extra "yes" per change, by design. ChatGPT (read-only scope) can look at your calendar but not make this call.
 
 ## 8. Mail (optional, later)
 After calendar works: start the server with `--enable-mail` (read + drafts only; Claude only, not ChatGPT; see [MAIL.md](MAIL.md)).

@@ -164,7 +164,7 @@ class FreeTimeResult(BaseModel):
 
 
 class ChangePreview(BaseModel):
-    """What create_event / update_event / delete_event return. Nothing has been written yet."""
+    """What preview_create_event / preview_update_event / preview_delete_event return. Nothing has been written yet."""
 
     needs_input: str | None = Field(default=None, description="Set when the tool needs an answer first, e.g. AMBIGUOUS_SCOPE")
     question: str | None = None

@@ -7,9 +7,9 @@ Both backends (LOCAL EventKit, HOSTED CalDAV) implement exactly these tools. Pre
 
 > **Mail tools** (`list_mailboxes`, `search_messages`, `get_message`, `get_thread`, `create_draft`) are specified in [MAIL.md](MAIL.md). They reuse `confirm_change` below; `create_draft` is an additional action type alongside create/update/delete of events. Scope is iCloud only.
 
-> **Implementation status (2026-10-23):** the four read tools (M1, M2) and the write tools `create_event`, `update_event`, `delete_event` and `confirm_change` (M4) are implemented and tested against a fake backend and a local Radicale server. Writes are off by default (`ALLOW_WRITES=true` plus `WRITABLE_CALENDARS=<names>`), refuse to start with no writable calendar, and refuse to combine with `--dev-no-auth`. **Not yet run against real iCloud** (the opt-in `tests/integration` run on the `TEST` calendar is the next step). Not built: attendees on create/update, `respond_to_event` (iCloud may send real email; deferred), per-scope OAuth, Mail.
+> **Implementation status (2026-10-23):** the four read tools (M1, M2) and the write tools `preview_create_event`, `preview_update_event`, `preview_delete_event` and `confirm_change` (M4) are implemented and tested against a fake backend and a local Radicale server. Writes are off by default (`ALLOW_WRITES=true` plus `WRITABLE_CALENDARS=<names>`), refuse to start with no writable calendar, and refuse to combine with `--dev-no-auth`. Verified on real iCloud on 2026-10-23: the opt-in `tests/integration` run on the `TEST` calendar passes, and create, edit and delete were done end to end through the claude.ai connector (see TESTING.md). Not built: attendees on create/update, `respond_to_event` (iCloud may send real email; deferred), per-scope OAuth, Mail.
 >
-> **Where the build differs from the spec below:** (1) event UIDs are random (uppercase UUID); test events are recognised by a title starting `icmcp-test` and by the ids the test recorded, not by a UID prefix. (2) A repeating series that already has edited or deleted occurrences refuses a change to its start, time zone or repeat rule (`INVALID_INPUT`), because shifting would detach those exceptions; renaming it or changing its notes or reminders is still allowed, with a warning. (3) `timezone` alone in `update_event` keeps the same wall-clock time in the new zone. (4) The tools accept `timezone` default `Asia/Tokyo` when omitted on a timed event. (5) `list_calendars` uses a 5-minute cache of the calendar list.
+> **Where the build differs from the spec below:** (1) event UIDs are random (uppercase UUID); test events are recognised by a title starting `icmcp-test` and by the ids the test recorded, not by a UID prefix. (2) A repeating series that already has edited or deleted occurrences refuses a change to its start, time zone or repeat rule (`INVALID_INPUT`), because shifting would detach those exceptions; renaming it or changing its notes or reminders is still allowed, with a warning. (3) `timezone` alone in `preview_update_event` keeps the same wall-clock time in the new zone. (4) The tools accept `timezone` default `Asia/Tokyo` when omitted on a timed event. (5) `list_calendars` uses a 5-minute cache of the calendar list. (6) **The three preview tools are named `preview_create_event`, `preview_update_event` and `preview_delete_event`, not `create_event` / `update_event` / `delete_event`.** claude.ai's automatic permission check blocked a tool called `create_event` as a write although it only previews; the `preview_` prefix says what it does. Section headings below keep the numbering but use the new names.
 
 ## 0. Shared conventions
 
@@ -171,7 +171,7 @@ Example: 60 minutes, 23-24 Oct, Tokyo 09:00-18:00:
 
 With `overlap_timezone: "Asia/Manila"` plus `overlap_working_hours`, only slots inside both working windows are returned.
 
-## 5. `create_event` (preview only; writes nothing)
+## 5. `preview_create_event` (preview only; writes nothing)
 
 ```json
 {
@@ -201,7 +201,7 @@ Output:
  "confirm_token":"<128-bit random>","expires_at":"2026-10-21T10:05:00+09:00"}
 ```
 
-## 6. `update_event` (preview only)
+## 6. `preview_update_event` (preview only)
 
 Input: `event_id` (required), `occurrence_start?`, `scope?` (`this_occurrence` | `whole_series`), `changes` (object with any of: `title, start, end, timezone, location, notes, alarms_minutes, recurrence`).
 
@@ -216,7 +216,7 @@ Input: `event_id` (required), `occurrence_start?`, `scope?` (`this_occurrence` |
 
 Output: `{"preview":{"action":"update","scope":...,"before":{...},"after":{...},"changed_fields":[...]},"confirm_token":...,"expires_at":...}`
 
-## 7. `delete_event` (preview only)
+## 7. `preview_delete_event` (preview only)
 
 Input: `event_id` (required), `occurrence_start?`, `scope?` (same rule as update). Exactly one event or one occurrence. No arrays, no query-based delete.
 

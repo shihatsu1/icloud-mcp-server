@@ -61,7 +61,7 @@ async def test_unexpected_errors_are_masked(mcp, service):
 
 # ---- write tools: present only when writes are on ------------------------------------------------
 
-WRITE_TOOLS = {"create_event", "update_event", "delete_event", "confirm_change"}
+WRITE_TOOLS = {"preview_create_event", "preview_update_event", "preview_delete_event", "confirm_change"}
 
 
 @pytest.fixture
@@ -86,7 +86,7 @@ async def test_write_tools_exist_only_when_writes_are_on(mcp, write_mcp):
 async def test_write_tool_annotations_tell_the_truth(write_mcp):
     async with Client(write_mcp) as client:
         tools = {t.name: t.annotations for t in await client.list_tools()}
-    for name in ("create_event", "update_event", "delete_event"):
+    for name in ("preview_create_event", "preview_update_event", "preview_delete_event"):
         assert tools[name].read_only_hint is True and tools[name].destructive_hint is False, name
     assert tools["confirm_change"].read_only_hint is False and tools["confirm_change"].destructive_hint is True
     assert all(a.title for a in tools.values())
@@ -105,7 +105,7 @@ async def test_preview_then_confirm_through_the_protocol(write_mcp):
     async with Client(write_mcp) as client:
         preview = data(
             await client.call_tool(
-                "create_event",
+                "preview_create_event",
                 {"calendar_id": "cal-work", "title": "Dentist", "start": "2026-11-02T15:00:00", "end": "2026-11-02T16:00:00"},
             )
         )
@@ -116,6 +116,6 @@ async def test_preview_then_confirm_through_the_protocol(write_mcp):
             await client.call_tool("confirm_change", {"confirm_token": preview["confirm_token"]})
         with pytest.raises(Exception, match="CALENDAR_NOT_WRITABLE"):
             await client.call_tool(
-                "create_event",
+                "preview_create_event",
                 {"calendar_id": "cal-home", "title": "x", "start": "2026-11-02T15:00:00", "end": "2026-11-02T16:00:00"},
             )
