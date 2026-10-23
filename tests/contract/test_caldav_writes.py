@@ -278,3 +278,49 @@ def test_an_unknown_event_cannot_be_updated_or_deleted(svc, work_id):
         with pytest.raises(CalendarError) as err:
             call()
         assert err.value.code == "NOT_FOUND"
+
+
+# ---- iCloud quirk: its UID query answers 412 for every event ---------------------------------------
+
+
+@pytest.fixture
+def icloud_like(monkeypatch):
+    """Make python-caldav's UID lookup fail exactly as iCloud does (found on the real server 2026-10-23)."""
+    from caldav import Calendar
+    from caldav.lib import error as dav_error
+
+    def refuse(self, *a, **k):
+        raise dav_error.ReportError("412 Precondition Failed")
+
+    monkeypatch.setattr(Calendar, "event_by_uid", refuse)
+    monkeypatch.setattr(Calendar, "search", _search_without_uid(Calendar.search, dav_error))
+
+
+def _search_without_uid(real, dav_error):
+    def search(self, *a, **k):
+        if k.get("uid"):
+            raise dav_error.ReportError("412 Precondition Failed")
+        return real(self, *a, **k)
+
+    return search
+
+
+def test_reads_and_writes_work_when_the_server_rejects_uid_queries(svc, work_id, icloud_like):
+    ev = apply(svc, svc.preview_create(work_id, **TIMED)).event  # create re-reads by UID
+    assert svc.get_event(ev.event_id).untrusted.title == "Dentist"
+    svc.backend._urls.clear()  # no remembered address: falls back to <UID>.ics
+    apply(svc, svc.preview_update(ev.event_id, {"title": "Dentist 2"}))
+    svc.backend._urls.clear()
+    assert svc.get_event(ev.event_id).untrusted.title == "Dentist 2"
+    apply(svc, svc.preview_delete(ev.event_id))
+    with pytest.raises(CalendarError) as err:
+        svc.get_event(ev.event_id)
+    assert err.value.code == "NOT_FOUND"
+
+
+def test_an_event_whose_file_name_is_not_its_uid_is_still_found_by_scanning(svc, parts, icloud_like):
+    _backend, work = parts
+    work.save_event(fx.wrap(fx.CLIENT_SYNC.replace("sync-1", "odd-uid-1")), uid=None)
+    svc.backend._urls.clear()
+    cid = next(c.calendar_id for c in svc.backend.list_calendars() if c.calendar_name == "Work")
+    assert svc.get_event(f"{cid}~odd-uid-1").untrusted.title == "Client sync"

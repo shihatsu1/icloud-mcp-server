@@ -19,6 +19,7 @@ from collections.abc import Callable
 from datetime import UTC, date, datetime, timedelta
 from datetime import time as dtime
 from typing import Any, TypeVar
+from urllib.parse import quote
 from uuid import uuid4
 
 import caldav
@@ -90,6 +91,7 @@ class CalDavBackend:
         )
         self._calendars: dict[str, tuple[caldav.Calendar, str]] = {}
         self._loaded_at = 0.0
+        self._urls: dict[str, str] = {}  # event_id -> address, learned from searches
 
     # ---- plumbing ---------------------------------------------------------------------------
 
@@ -125,6 +127,34 @@ class CalDavBackend:
             raise CalendarError("NOT_FOUND", f"Unknown calendar_id: {calendar_id!r}.")
         return calendars[calendar_id]
 
+    def _event_by_uid(self, calendar_id: str, cal: caldav.Calendar, uid: str) -> Any:
+        """Find one event object by UID.
+
+        iCloud answers python-caldav's UID query (REPORT) with "412 Precondition Failed" for every event
+        (found against the real server on 2026-10-23), so event_by_uid cannot be used. Fetch by address
+        instead: the address seen in an earlier search, then the usual <UID>.ics name, and only then scan
+        the whole calendar for the UID.
+        """
+        key = make_event_id(calendar_id, uid)
+        base = str(cal.url).rstrip("/") + "/"
+        guesses = [u for u in (self._urls.get(key), f"{base}{quote(uid, safe='')}.ics") if u]
+        for url in dict.fromkeys(guesses):
+            try:
+                obj = cal.event_by_url(url)
+                obj.load()
+            except dav_error.AuthorizationError:
+                raise
+            except dav_error.DAVError:
+                continue
+            if str(obj.icalendar_component.get("UID", "")) == uid:
+                self._urls[key] = str(obj.url)
+                return obj
+        for obj in cal.events():
+            if str(obj.icalendar_component.get("UID", "")) == uid:
+                self._urls[key] = str(obj.url)
+                return obj
+        raise dav_error.NotFoundError("no event with that UID")
+
     # ---- reads ------------------------------------------------------------------------------
 
     def list_calendars(self) -> list[CalendarInfo]:
@@ -150,6 +180,8 @@ class CalDavBackend:
                     uid = str(comp.get("UID", ""))
                     if not uid or "DTSTART" not in comp:
                         continue
+                    if getattr(obj, "url", None):
+                        self._urls[make_event_id(cid, uid)] = str(obj.url)
                     events.append(
                         component_to_event(
                             comp,
@@ -168,7 +200,7 @@ class CalDavBackend:
         def go() -> Event:
             cal, name = self._calendar(calendar_id)
             try:
-                obj = cal.event_by_uid(uid)
+                obj = self._event_by_uid(calendar_id, cal, uid)
             except dav_error.NotFoundError:
                 raise CalendarError("NOT_FOUND", f"No event {event_id!r} was found.") from None
             version = _etag(obj)
@@ -256,7 +288,7 @@ class CalDavBackend:
         calendar_id, uid = split_event_id(event_id)
         cal, _name = self._calendar(calendar_id)
         try:
-            obj = cal.event_by_uid(uid)
+            obj = self._event_by_uid(calendar_id, cal, uid)
         except dav_error.NotFoundError:
             raise CalendarError("NOT_FOUND", f"No event {event_id!r} was found.") from None
         if expected_version is not None and _etag(obj) != expected_version:
