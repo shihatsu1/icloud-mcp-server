@@ -22,6 +22,7 @@ NEXT_STEPS = {
     "INVALID_RANGE": "Use a start before the end, spanning at most 366 days.",
     "NOT_FOUND": "Check the event_id (and occurrence_start for a recurring event).",
     "INVALID_INPUT": "Fix the input and try again.",
+    "RATE_LIMITED": "Too many changes were confirmed recently. Wait a few minutes, then run the preview again.",
 }
 
 

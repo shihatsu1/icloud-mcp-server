@@ -8,15 +8,27 @@ from zoneinfo import ZoneInfo
 from ..backends.base import CalendarBackend
 from ..config import Settings
 from . import freebusy
+from .changes import (
+    CHANGE_KEYS,
+    apply_changes,
+    build_new_event,
+    differences,
+    normalize_changes,
+    summarize_recurrence,
+)
 from .errors import CalendarError
 from .models import (
     FLOATING,
+    CalendarInfo,
     CalendarOut,
+    ChangePreview,
+    ConfirmResult,
     Event,
     EventDetail,
     EventSummary,
     FreeSlot,
     FreeTimeResult,
+    NewEvent,
     SearchResult,
     UntrustedDetail,
     UntrustedSummary,
@@ -30,6 +42,7 @@ from .timezones import (
     parse_range,
 )
 from .untrusted import MAX_LOCATION, MAX_NOTES, MAX_TITLE, MAX_URL, NOTICE, clean
+from .writes import PendingChange, PendingStore
 
 DEFAULT_LIMIT = 50
 MAX_LIMIT = 200
@@ -40,10 +53,11 @@ def _iso(value: date | datetime | None) -> str | None:
 
 
 class CalendarService:
-    def __init__(self, backend: CalendarBackend, settings: Settings):
+    def __init__(self, backend: CalendarBackend, settings: Settings, store: PendingStore | None = None):
         self.backend = backend
         self.settings = settings
         self.default_tz: ZoneInfo = get_zone(settings.default_timezone)
+        self.store = store or PendingStore()
 
     # ---- conversion -------------------------------------------------------------------------
 
@@ -257,6 +271,243 @@ class CalendarService:
             + "Each window may be longer than the requested duration."
         )
         return FreeTimeResult(slots=result, note=note)
+
+    # ---- writes: preview, then confirm (docs/TOOLS.md sections 5-8) ---------------------------
+
+    def _writable_calendar(self, calendar_id: str) -> CalendarInfo:
+        if not self.settings.allow_writes:
+            raise CalendarError("WRITES_DISABLED", "This server is running without write access.")
+        cal = next((c for c in self.backend.list_calendars() if c.calendar_id == calendar_id), None)
+        if cal is None:
+            raise CalendarError("NOT_FOUND", f"Unknown calendar_id: {calendar_id!r}.")
+        if cal.read_only_in_source or cal.calendar_name not in self.settings.writable_calendars:
+            raise CalendarError(
+                "CALENDAR_NOT_WRITABLE", f"The calendar {cal.calendar_name!r} is not on this server's writable list."
+            )
+        return cal
+
+    def _fields(self, event: Event) -> dict:
+        c = self._common(event)
+        return {
+            "title": clean(event.title, MAX_TITLE),
+            "location": clean(event.location, MAX_LOCATION),
+            "notes": clean(event.notes, MAX_NOTES),
+            "all_day": c["all_day"],
+            "start": c["start"],
+            "end": c["end"],
+            "start_date": c["start_date"],
+            "end_date": c["end_date"],
+            "timezone": c["timezone"],
+            "alarms_minutes": list(event.alarms_minutes),
+            "recurrence": event.recurrence,
+            "display": c["display"],
+        }
+
+    def _issue(self, preview: dict, change: PendingChange) -> ChangePreview:
+        token, expires = self.store.issue(change)
+        return ChangePreview(
+            preview=preview,
+            confirm_token=token,
+            expires_at=datetime.fromtimestamp(expires, self.default_tz).isoformat(timespec="seconds"),
+            notice="Nothing has been written yet. Show this preview to the user and call confirm_change only after they agree. " + NOTICE,
+        )
+
+    def _parse_occurrence(self, occurrence_start: str | None) -> date | datetime | None:
+        if not occurrence_start:
+            return None
+        text = occurrence_start.strip()
+        try:
+            return date.fromisoformat(text) if len(text) == 10 else parse_instant(text, self.default_tz)
+        except ValueError:
+            raise CalendarError("INVALID_INPUT", "occurrence_start must be a date or an ISO 8601 date-time.") from None
+
+    def _scoped_target(self, event_id: str, occurrence_start: str | None, scope: str | None):
+        """Return (master, target, scope, occurrence) or a ChangePreview asking for the scope."""
+        if scope not in (None, "this_occurrence", "whole_series"):
+            raise CalendarError("INVALID_INPUT", "scope must be 'this_occurrence' or 'whole_series'.")
+        occ = self._parse_occurrence(occurrence_start)
+        master = self.backend.get_event(event_id, None)
+        if not master.is_recurring:
+            return master, master, "whole", None
+        if scope is None:
+            return ChangePreview(
+                needs_input="AMBIGUOUS_SCOPE",
+                question=(
+                    f"'{clean(master.title, MAX_TITLE)}' repeats. Change only one occurrence "
+                    "(scope this_occurrence, with occurrence_start) or every occurrence (scope whole_series)?"
+                ),
+                notice="No confirm_token was issued. Ask the user, then call again with a scope.",
+            )
+        if scope == "whole_series":
+            return master, master, "whole", None
+        if occ is None:
+            raise CalendarError("INVALID_INPUT", "occurrence_start is required with scope this_occurrence.")
+        return master, self.backend.get_event(event_id, occ), "occurrence", occ
+
+    def preview_create(self, calendar_id: str, title: str, **fields) -> ChangePreview:
+        cal = self._writable_calendar(calendar_id)
+        new = build_new_event(
+            calendar_id=calendar_id, title=title, default_timezone=self.settings.default_timezone, **fields
+        )
+        shown = self._planned(new, cal)
+        preview = {
+            "action": "create",
+            "calendar": cal.calendar_name,
+            "fields": self._fields(shown),
+            "recurrence_summary": summarize_recurrence(new.recurrence),
+        }
+        return self._issue(preview, PendingChange("create", calendar_id, payload={"new": new, "expected": shown}))
+
+    @staticmethod
+    def _planned(new: NewEvent, cal: CalendarInfo) -> Event:
+        return Event(
+            event_id="(new)",
+            calendar_id=cal.calendar_id,
+            calendar_name=cal.calendar_name,
+            all_day=new.all_day,
+            start=new.start,
+            end=new.end,
+            tzid=new.tzid,
+            title=new.title,
+            location=new.location,
+            notes=new.notes,
+            is_recurring=new.recurrence is not None,
+            recurrence=new.recurrence,
+            alarms_minutes=new.alarms_minutes,
+        )
+
+    def preview_update(
+        self, event_id: str, changes: dict, occurrence_start: str | None = None, scope: str | None = None
+    ) -> ChangePreview:
+        found = self._scoped_target(event_id, occurrence_start, scope)
+        if isinstance(found, ChangePreview):
+            return found
+        master, target, kind, occ = found
+        self._writable_calendar(master.calendar_id)
+        norm = normalize_changes(target, changes, self.default_tz, allow_recurrence=kind == "whole")
+        after = apply_changes(target, norm)
+        changed = [k for k in CHANGE_KEYS if self._differs(target, after, k, norm)]
+        if not changed:
+            raise CalendarError("INVALID_INPUT", "Those values are already what the event has; nothing would change.")
+        warnings = []
+        if kind == "whole" and master.is_recurring and master.exceptions_count:
+            if {"start", "timezone", "recurrence"} & set(changed):
+                raise CalendarError(
+                    "INVALID_INPUT",
+                    f"This series has {master.exceptions_count} individually edited or deleted occurrence(s); changing "
+                    "its start, zone or repeat rule would detach them. Change the occurrences one by one, or create a new series.",
+                )
+            warnings.append(f"{master.exceptions_count} occurrence(s) were edited or removed individually and keep their own values.")
+        preview = {
+            "action": "update",
+            "scope": scope if master.is_recurring else None,
+            "calendar": master.calendar_name,
+            "event_id": event_id,
+            "occurrence_start": _iso(occ),
+            "before": self._fields(target),
+            "after": self._fields(after),
+            "changed_fields": changed,
+            "warnings": warnings,
+        }
+        change = PendingChange(
+            "update",
+            master.calendar_id,
+            event_id=event_id,
+            occurrence_start=_iso(occ),
+            scope=kind,
+            payload={"changes": norm, "expected": after, "keys": [k for k in norm]},
+            version=master.version,
+        )
+        return self._issue(preview, change)
+
+    @staticmethod
+    def _differs(before: Event, after: Event, key: str, norm: dict) -> bool:
+        mapping = {"timezone": "tzid"}
+        if key == "timezone":
+            return "tzid" in norm and before.tzid != after.tzid
+        attr = mapping.get(key, key)
+        return key in norm and getattr(before, attr) != getattr(after, attr)
+
+    def preview_delete(
+        self, event_id: str, occurrence_start: str | None = None, scope: str | None = None
+    ) -> ChangePreview:
+        found = self._scoped_target(event_id, occurrence_start, scope)
+        if isinstance(found, ChangePreview):
+            return found
+        master, target, kind, occ = found
+        self._writable_calendar(master.calendar_id)
+        if master.is_recurring and kind == "whole":
+            warning = "This deletes the whole series: every occurrence, including past ones."
+        elif master.is_recurring:
+            warning = "This deletes only this one occurrence; the rest of the series stays."
+        else:
+            warning = "This deletes the event."
+        preview = {
+            "action": "delete",
+            "scope": scope if master.is_recurring else None,
+            "calendar": master.calendar_name,
+            "event_id": event_id,
+            "occurrence_start": _iso(occ),
+            "event": self._fields(target),
+            "warning": warning,
+        }
+        change = PendingChange(
+            "delete", master.calendar_id, event_id=event_id, occurrence_start=_iso(occ), scope=kind, version=master.version
+        )
+        return self._issue(preview, change)
+
+    def confirm_change(self, confirm_token: str) -> ConfirmResult:
+        if not self.settings.allow_writes:
+            raise CalendarError("WRITES_DISABLED", "This server is running without write access.")
+        change = self.store.redeem(confirm_token)
+        self._writable_calendar(change.calendar_id)  # the allow-list is checked again at write time
+        occ = self._parse_occurrence(change.occurrence_start)
+
+        if change.action == "create":
+            expected: Event = change.payload["expected"]
+            created = self.backend.create_event(change.payload["new"])
+            actual = self.backend.get_event(created.event_id)
+            self._verify(actual, expected, ["title", "location", "notes", "start", "end", "tzid", "alarms_minutes", "recurrence"])
+            return ConfirmResult(result="applied", action="create", event=self.detail(actual), message="The event was created.", notice=NOTICE)
+
+        current = self.backend.get_event(change.event_id, None)
+        if change.version is not None and current.version != change.version:
+            raise CalendarError("CONFLICT", "The event was changed after the preview, so nothing was written.")
+
+        if change.action == "update":
+            expected = change.payload["expected"]
+            self.backend.update_event(
+                change.event_id, change.payload["changes"], scope=change.scope, occurrence_start=occ, expected_version=change.version
+            )
+            actual = self.backend.get_event(change.event_id, occ if change.scope == "occurrence" else None)
+            keys = [k for k in change.payload["keys"]]
+            self._verify(actual, expected, keys)
+            return ConfirmResult(result="applied", action="update", event=self.detail(actual), message="The event was updated.", notice=NOTICE)
+
+        self.backend.delete_event(change.event_id, scope=change.scope, occurrence_start=occ, expected_version=change.version)
+        try:
+            still = self.backend.get_event(change.event_id, occ if change.scope == "occurrence" else None)
+        except CalendarError as exc:
+            if exc.code != "NOT_FOUND":
+                raise
+        else:
+            raise CalendarError(
+                "WRITE_VERIFICATION_FAILED",
+                f"After the delete the calendar still shows '{clean(still.title, MAX_TITLE)}'. Check the calendar.",
+            )
+        what = "The whole series was deleted." if change.scope == "whole" and current.is_recurring else (
+            "That occurrence was deleted." if change.scope == "occurrence" else "The event was deleted."
+        )
+        return ConfirmResult(result="applied", action="delete", event=None, message=what, notice=NOTICE)
+
+    def _verify(self, actual: Event, expected: Event, keys: list[str]) -> None:
+        wrong = differences(actual, expected, keys, self.default_tz)
+        if wrong:
+            raise CalendarError(
+                "WRITE_VERIFICATION_FAILED",
+                f"After the change the calendar shows different values for: {', '.join(wrong)}. "
+                f"Actual: {self._fields(actual)}",
+            )
 
 
 # ---- helpers ----------------------------------------------------------------------------------

@@ -10,6 +10,7 @@ import logging
 import os
 import sys
 from collections.abc import Mapping, Sequence
+from dataclasses import replace
 
 from .auth import AuthConfigError, AuthSettings, build_auth, owner_check
 from .backends.caldav_backend import CalDavBackend
@@ -25,22 +26,35 @@ LOOPBACK = {"127.0.0.1", "localhost", "::1"}
 def _parser(env: Mapping[str, str] | None = None) -> argparse.ArgumentParser:
     env = os.environ if env is None else env
     p = argparse.ArgumentParser(
-        prog="icloud-mcp-server", description="iCloud calendar MCP server (read-only in this version)."
+        prog="icloud-mcp-server", description="iCloud calendar MCP server (read-only unless writes are enabled)."
     )
     p.add_argument("--host", default="127.0.0.1", help="bind address (the container uses 0.0.0.0)")
     p.add_argument("--port", type=int, default=int(env.get("PORT", "8080")), help="default: $PORT or 8080")
     p.add_argument("--dev-no-auth", action="store_true", help="NO authentication; localhost only")
-    p.add_argument("--allow-writes", action="store_true", help="not available yet (milestone M4)")
-    p.add_argument("--writable-calendars", default="", help="used together with --allow-writes")
+    p.add_argument(
+        "--allow-writes", action="store_true", help="enable create/update/delete (same as ALLOW_WRITES=true)"
+    )
+    p.add_argument(
+        "--writable-calendars",
+        default="",
+        help="comma-separated calendar NAMES that may be written (same as WRITABLE_CALENDARS)",
+    )
     return p
 
 
 def build(args: argparse.Namespace, env: Mapping[str, str]):
     """Build the server or raise SystemExit-worthy errors as (message, code) via ValueError."""
-    if args.allow_writes:
-        raise ValueError("Write tools are not available in this version (milestone M4).")
-
     settings = Settings.from_env(env)
+    allow = args.allow_writes or settings.allow_writes
+    names = frozenset(n.strip() for n in args.writable_calendars.split(",") if n.strip()) or settings.writable_calendars
+    if allow and not names:
+        raise ValueError(
+            "Writes are on but no calendar may be written. Name the calendars in WRITABLE_CALENDARS "
+            "(or --writable-calendars), for example TEST."
+        )
+    if allow and args.dev_no_auth:
+        raise ValueError("--dev-no-auth cannot be combined with writes: an unauthenticated server must stay read-only.")
+    settings = replace(settings, allow_writes=allow, writable_calendars=names)
     if args.dev_no_auth:
         if args.host not in LOOPBACK:
             raise ValueError("--dev-no-auth only works with --host 127.0.0.1 (or localhost).")

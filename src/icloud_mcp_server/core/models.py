@@ -54,6 +54,23 @@ class Event:
     extra: dict = field(default_factory=dict)
 
 
+@dataclass(frozen=True)
+class NewEvent:
+    """A validated request to create one event. Times are already resolved: aware for timed events,
+    plain dates (exclusive end) for all-day events. Attendees are not supported (they would send mail)."""
+
+    calendar_id: str
+    title: str
+    all_day: bool
+    start: date | datetime
+    end: date | datetime
+    tzid: str | None = None  # IANA zone for timed events, None for all-day
+    location: str | None = None
+    notes: str | None = None
+    alarms_minutes: tuple[int, ...] = ()
+    recurrence: dict | None = None  # structured form, see docs/TOOLS.md ($defs/recurrence)
+
+
 class CalendarOut(BaseModel):
     calendar_id: str
     calendar_name: str
@@ -144,3 +161,22 @@ class FreeSlot(BaseModel):
 class FreeTimeResult(BaseModel):
     slots: list[FreeSlot]
     note: str
+
+
+class ChangePreview(BaseModel):
+    """What create_event / update_event / delete_event return. Nothing has been written yet."""
+
+    needs_input: str | None = Field(default=None, description="Set when the tool needs an answer first, e.g. AMBIGUOUS_SCOPE")
+    question: str | None = None
+    preview: dict | None = Field(default=None, description="Exact before/after of the proposed change")
+    confirm_token: str | None = Field(default=None, description="Pass to confirm_change to apply exactly this change")
+    expires_at: str | None = None
+    notice: str
+
+
+class ConfirmResult(BaseModel):
+    result: str
+    action: str
+    event: EventDetail | None = Field(default=None, description="State re-read from the calendar after the change")
+    message: str
+    notice: str

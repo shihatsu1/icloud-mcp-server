@@ -7,7 +7,9 @@ Both backends (LOCAL EventKit, HOSTED CalDAV) implement exactly these tools. Pre
 
 > **Mail tools** (`list_mailboxes`, `search_messages`, `get_message`, `get_thread`, `create_draft`) are specified in [MAIL.md](MAIL.md). They reuse `confirm_change` below; `create_draft` is an additional action type alongside create/update/delete of events. Scope is iCloud only.
 
-> **Implementation status (2026-10-21):** the four read tools are implemented (milestones M1 and M2). Preview tools and `confirm_change` are milestone M4. Behaviour verified so far: against a fake backend and a local Radicale server, not yet against real iCloud.
+> **Implementation status (2026-10-23):** the four read tools (M1, M2) and the write tools `create_event`, `update_event`, `delete_event` and `confirm_change` (M4) are implemented and tested against a fake backend and a local Radicale server. Writes are off by default (`ALLOW_WRITES=true` plus `WRITABLE_CALENDARS=<names>`), refuse to start with no writable calendar, and refuse to combine with `--dev-no-auth`. **Not yet run against real iCloud** (the opt-in `tests/integration` run on the `TEST` calendar is the next step). Not built: attendees on create/update, `respond_to_event` (iCloud may send real email; deferred), per-scope OAuth, Mail.
+>
+> **Where the build differs from the spec below:** (1) event UIDs are random (uppercase UUID); test events are recognised by a title starting `icmcp-test` and by the ids the test recorded, not by a UID prefix. (2) A repeating series that already has edited or deleted occurrences refuses a change to its start, time zone or repeat rule (`INVALID_INPUT`), because shifting would detach those exceptions; renaming it or changing its notes or reminders is still allowed, with a warning. (3) `timezone` alone in `update_event` keeps the same wall-clock time in the new zone. (4) The tools accept `timezone` default `Asia/Tokyo` when omitted on a timed event. (5) `list_calendars` uses a 5-minute cache of the calendar list.
 
 ## 0. Shared conventions
 

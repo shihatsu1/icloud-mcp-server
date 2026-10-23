@@ -64,9 +64,33 @@ def test_dev_no_auth_refuses_non_loopback_host(capsys):
     assert "127.0.0.1" in capsys.readouterr().err
 
 
-def test_allow_writes_is_refused_in_this_version(capsys):
+def test_writes_without_a_calendar_name_are_refused(capsys):
     assert run(["--allow-writes"], GOOD) == 2
-    assert "not available" in capsys.readouterr().err
+    assert "WRITABLE_CALENDARS" in capsys.readouterr().err
+    assert run([], {**GOOD, "ALLOW_WRITES": "true"}) == 2
+    assert "no calendar may be written" in capsys.readouterr().err
+
+
+def test_writes_are_refused_on_an_unauthenticated_server(capsys):
+    env = {"ICLOUD_APPLE_ID": "a", "ICLOUD_APP_PASSWORD": "b"}
+    assert run(["--dev-no-auth", "--allow-writes", "--writable-calendars", "TEST"], env) == 2
+    assert "read-only" in capsys.readouterr().err
+
+
+def test_writes_can_be_switched_on_by_flag_or_by_environment(monkeypatch):
+    from icloud_mcp_server.__main__ import _parser, build
+
+    seen = []
+    monkeypatch.setattr("icloud_mcp_server.__main__.CalDavBackend", lambda *a, **k: object())
+    monkeypatch.setattr("icloud_mcp_server.__main__.build_server", lambda service, **k: seen.append(service.settings))
+    build(_parser(GOOD).parse_args(["--allow-writes", "--writable-calendars", "TEST, Scratch"]), GOOD)
+    build(_parser(GOOD).parse_args([]), {**GOOD, "ALLOW_WRITES": "true", "WRITABLE_CALENDARS": "TEST"})
+    build(_parser(GOOD).parse_args([]), GOOD)
+    assert [(s.allow_writes, sorted(s.writable_calendars)) for s in seen] == [
+        (True, ["Scratch", "TEST"]),
+        (True, ["TEST"]),
+        (False, []),
+    ]
 
 
 def test_missing_icloud_password_is_a_clear_error_without_leaking(capsys, monkeypatch):
