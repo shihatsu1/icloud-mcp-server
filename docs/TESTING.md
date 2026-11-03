@@ -1,5 +1,7 @@
 # Testing
 
+> **Superseded notes (2026-11-03):** statements below about ChatGPT being "untested" or a goal are historical; custom ChatGPT support was dropped (the owner uses ChatGPT's native iCloud plugins). The "Swift" and "integration against EventKit" rows describe the unbuilt LOCAL mode; the real integration tests are the CalDAV `TEST`-calendar tests described under "Real-account tests".
+
 All fixtures are synthetic. No real calendar names, email addresses or events may be committed.
 
 | Layer | Runs where | What it covers |
@@ -32,4 +34,11 @@ All fixtures are synthetic. No real calendar names, email addresses or events ma
 - Real-iCloud writes (2026-10-23): `tests/integration` (opt-in, `-m integration`, refuses unless a calendar named exactly `TEST` exists, deletes only what it created) **passes 5 of 5** against the real iCloud `TEST` calendar: create, update and delete a timed event, an all-day event, and a weekly series (move one occurrence, change reminders for the whole series, delete one occurrence, delete the series). `TEST` was left empty.
 - **Bug found by that run, affecting reads too:** iCloud answers python-caldav's UID query (`event_by_uid`, and `search(uid=...)`) with `412 Precondition Failed` for every event, so `get_event` could never have worked on real iCloud (the earlier probe only listed and searched). Events are now fetched by address (the address seen in a search, then `<UID>.ics`, then a scan of the calendar). Regression tests simulate the 412.
 - Write tools through the real claude.ai connector (2026-10-23, revision 00006, writes limited to `TEST`): create, edit (rename and move 15:00 to 17:00 Tokyo) and delete of one `icmcp-test` event, each previewed and then applied after an OK in chat. The created event was independently read back from iCloud (title, 15:00-16:00 Asia/Tokyo, 10-minute reminder) and `TEST` was empty afterwards. No warnings or errors in the Cloud Run logs. Observations: after a redeploy the connector shows the old tool list until **Customize > Connectors > iCloud Calendar > Refresh tools list**; claude.ai's own automatic permission check first blocked a tool then named `create_event` because the name sounds like a write (it only previews); the tools were therefore renamed `preview_create_event`, `preview_update_event` and `preview_delete_event` (re-tested on revision 00007 after the rename: the preview ran with no block, then create and delete were applied after an OK and `TEST` was empty again); the first call after a cold start took about 45 seconds end to end.
-- Still untested against real services: ChatGPT, a repeating series created through claude.ai, Mail.
+- Still untested against real services: a repeating series created through claude.ai. (ChatGPT and Mail: out of scope, see the note at the top.)
+
+
+## Hardening branch (2026-11-03): what is and is not verified
+Run locally on macOS with Python 3.11, 3.12 (the project venv) and 3.13: full offline suite, ruff, mypy. Not run: anything against real iCloud, GitHub, claude.ai or Cloud Run. Regression tests were written first and failed on the old code for: unconditional DELETE after a concurrent edit; writes without a strong ETag; guests on a detached occurrence; UNTIL comparison; RDATE left after removing a repeat; notes longer than the preview.
+
+## Real-account tests (opt-in)
+`ICLOUD_APPLE_ID=<id> ICLOUD_TEST_WRITES=yes uv run pytest -m integration tests/integration -q`. Refuses unless exactly one calendar is named `TEST`; allows writes by that calendar's ID only; writes each planned event ID to `tests/integration/.ledger.jsonl` (gitignored) *before* confirming; cleanup failures fail the run and list the leftovers; a later run cleans leftovers first. The ledger logic itself is tested offline (`tests/unit/test_integration_ledger.py`).

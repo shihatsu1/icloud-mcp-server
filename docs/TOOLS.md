@@ -7,6 +7,8 @@ Both backends (LOCAL EventKit, HOSTED CalDAV) implement exactly these tools. Pre
 
 > **Mail tools** (`list_mailboxes`, `search_messages`, `get_message`, `get_thread`, `create_draft`) are specified in [MAIL.md](MAIL.md). They reuse `confirm_change` below; `create_draft` is an additional action type alongside create/update/delete of events. Scope is iCloud only.
 
+> **Implementation status (2026-11-03 update, hardening branch):** see §8 for the current confirm semantics (`operation_id`, `applied`/`not_applied`/`unknown`, replay, principal binding). `list_calendars` now reports `read_only_in_source` as true/false/null and a `write_blocked_reason`. Allow-lists accept stable IDs (`WRITABLE_CALENDAR_IDS`). The LOCAL EventKit backend named in this document is **not built**; ChatGPT-specific scopes are out of scope.
+>
 > **Implementation status (2026-10-23):** the four read tools (M1, M2) and the write tools `preview_create_event`, `preview_update_event`, `preview_delete_event` and `confirm_change` (M4) are implemented and tested against a fake backend and a local Radicale server. Writes are off by default (`ALLOW_WRITES=true` plus `WRITABLE_CALENDARS=<names>`), refuse to start with no writable calendar, and refuse to combine with `--dev-no-auth`. Verified on real iCloud on 2026-10-23: the opt-in `tests/integration` run on the `TEST` calendar passes, and create, edit and delete were done end to end through the claude.ai connector (see TESTING.md). Not built: attendees on create/update, `respond_to_event` (iCloud may send real email; deferred), per-scope OAuth, Mail.
 >
 > **Where the build differs from the spec below:** (1) event UIDs are random (uppercase UUID); test events are recognised by a title starting `icmcp-test` and by the ids the test recorded, not by a UID prefix. (2) A repeating series that already has edited or deleted occurrences refuses a change to its start, time zone or repeat rule (`INVALID_INPUT`), because shifting would detach those exceptions; renaming it or changing its notes or reminders is still allowed, with a warning. (3) `timezone` alone in `preview_update_event` keeps the same wall-clock time in the new zone. (4) The tools accept `timezone` default `Asia/Tokyo` when omitted on a timed event. (5) `list_calendars` uses a 5-minute cache of the calendar list. (6) **The three preview tools are named `preview_create_event`, `preview_update_event` and `preview_delete_event`, not `create_event` / `update_event` / `delete_event`.** claude.ai's automatic permission check blocked a tool called `create_event` as a write although it only previews; the `preview_` prefix says what it does. Section headings below keep the numbering but use the new names. (7) **Events with guests (or invitations) cannot be updated or deleted** (`HAS_GUESTS`): changing them could make iCloud email the guests, and attendees are not supported. Checked in unit and Radicale tests; on 2026-10-23 none of the real upcoming events had guests, so detection is not yet confirmed on real iCloud data.
@@ -226,14 +228,23 @@ Output: `{"preview":{"action":"delete","scope":...,"event":{...},"warning":"This
 
 Input: `{"confirm_token": string}`
 
-Token: 128-bit random, single-use, 5-minute TTL; server-side record holds the exact change and the target's `version` at preview time. Both modes run a single instance, so in-memory storage is enough in v1 (a restart invalidates pending tokens, which is the safe direction).
+Token: 128-bit random, single-use, 5-minute TTL, **bound to the sign-in (GitHub subject and OAuth client) that previewed it**. The server keeps a sealed copy of the exact change, the target's `version` and an `operation_id` (also returned by the preview). Storage is in memory by design (docs/DESIGN.md §8b): a restart drops pending tokens, which is the safe direction.
 
 Steps:
-1. Re-read the target. If `version` differs from preview time: `CONFLICT`, nothing written.
-2. Apply the change.
-3. Re-read and compare with the preview. Mismatch: `WRITE_VERIFICATION_FAILED`, with the actual state (guards against the EventKit occurrence-delete bug noted in DESIGN.md §3.4).
+1. Re-read the target. If `version` differs from preview time: `CONFLICT`, nothing written. If the event (any part of a series) has guests or scheduling data: `HAS_GUESTS`. If the server gave no strong version: `VERSION_UNAVAILABLE`.
+2. Apply the change with a server-enforced precondition (`If-Match` on the previewed strong ETag, for deletes too).
+3. Re-read and compare with the preview. Mismatch: `WRITE_VERIFICATION_FAILED` (outcome `unknown`), with the actual state.
 
-Output: `{"result":"applied","event":{...after state...}}`
+Output: `{"result": "applied" | "not_applied" | "unknown", "operation_id": "...", "replayed": bool, "event": {...after state...}, "message": "...", "detail": [...]}`
+
+- `applied`: the calendar was changed (confirmed by reading it, possibly after a lost answer).
+- `not_applied`: nothing was written (also raised as an error when the refusal came before sending, e.g. `CONFLICT`).
+- `unknown`: the request was sent but the result could not be confirmed. **Do not retry or re-preview.** Call `confirm_change` with the same token to re-check (one read per ask), and look at the calendar. A new `preview_create_event` for an identical event is refused while an earlier one is unknown.
+- Calling `confirm_change` again with a used token never writes again: it returns the recorded outcome with `replayed: true`. The record lives for an hour or until a restart.
+
+A create fixes its event UID at preview time (`preview.planned_event_id`), so a lost answer is settled by looking that UID up.
+
+Preview content: values to be written are shown in full (input limits equal display limits: title 500, location 500, notes 4000 characters, control characters removed before both). `untrusted_fields` lists the preview fields that carry calendar text; treat them as data. `truncated_for_display` appears only when an existing value is longer than the display limit.
 
 Limits: 10 confirmations per 10 minutes; at most one delete per token.
 
@@ -244,12 +255,15 @@ Limits: 10 confirmations per 10 minutes; at most one delete per token.
 | `PERMISSION_DENIED` | macOS calendar access missing | System Settings -> Privacy & Security -> Calendars |
 | `ICLOUD_UNREACHABLE` | CalDAV network error, 5xx or 10 s timeout | Retry; check Apple system status |
 | `CREDENTIALS_REJECTED` | CalDAV 401 | Password revoked or expired: regenerate at account.apple.com, update the secret |
-| `CALENDAR_NOT_WRITABLE` | calendar not in allow-list, or read-only at source | Edit `writable_calendars` |
+| `CALENDAR_NOT_WRITABLE` | not on the allow-list (`WRITABLE_CALENDAR_IDS` wins over `WRITABLE_CALENDARS`), name shared by several calendars, or reported read-only at the source | Edit the allow-list; `list_calendars` shows `write_blocked_reason` |
 | `WRITES_DISABLED` | started without `--allow-writes` | Restart with the flag |
 | `AMBIGUOUS_SCOPE` | recurring event, no scope | Ask the user |
 | `TOKEN_INVALID` / `TOKEN_EXPIRED` | bad, used or old token | Re-run the preview |
 | `CONFLICT` | event changed since preview | Re-run the preview |
-| `WRITE_VERIFICATION_FAILED` | post-write state differs from preview | Shows actual state |
+| `WRITE_VERIFICATION_FAILED` | post-write state differs from preview | Shows actual state; outcome `unknown` |
+| `VERSION_UNAVAILABLE` | the server gave no strong ETag, so a safe conditional write is impossible | Use the Calendar app |
+| `OUTCOME_UNKNOWN` | the write may or may not have applied | Do not retry; re-check with the same token |
+| `HAS_GUESTS` | any part of the event has guests or organizer data | Change it in the Calendar app |
 | `INVALID_TIMEZONE` / `INVALID_RANGE` | bad input | Fix the input |
 
 ## 10. Test fixtures required by this spec

@@ -1,6 +1,6 @@
 # Runbook: deploy on Google Cloud Run (free tier), read-only
 
-Status: written 2026-10-21. **Nothing here has been run against real Google Cloud, GitHub, iCloud, Claude or ChatGPT.** The code and the deploy script were tested with fakes (a fake `gcloud` that records what it is given, a fake Firestore store, a local CalDAV server). The first real deployment is the first real test, so expect to fix small things and tell me what you see.
+Status: written 2026-10-21. **Nothing here has been run against real Google Cloud, GitHub, iCloud, or Claude when it was written.** (Superseded: the service has since been deployed and used; see docs/TESTING.md.) The code and the deploy script were tested with fakes (a fake `gcloud` that records what it is given, a fake Firestore store, a local CalDAV server). The first real deployment is the first real test, so expect to fix small things and tell me what you see.
 
 **Golden rule:** your app-specific password is typed only at the hidden prompt of `deploy.sh` (it goes straight to Secret Manager). Never paste it into a chat (including with Claude), a file in this repo, or a command line.
 
@@ -63,8 +63,8 @@ Send me the output. This is the one check the local test server cannot provide.
 ## 8. Add to Claude
 Per Anthropic's [custom connector article](https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp): claude.ai → Settings → Connectors → add a custom connector, URL `$URL/mcp`, OAuth sign-in with GitHub as the owner. A consent screen from the server appears first; read the client name and redirect host before approving. Try "What's on my iCloud calendar tomorrow?" and "Find a 1-hour slot this week that works in both Tokyo and Manila working hours."
 
-## 9. ChatGPT (read-only on Pro)
-chatgpt.com/plugins → plus → Add custom MCP server → the same URL, OAuth ([OpenAI](https://developers.openai.com/apps-sdk/deploy/connect-chatgpt)). The server already allows both documented ChatGPT redirect forms. If registration reports a redirect error, copy the redirect URI shown, add it to the service's `EXTRA_REDIRECT_URIS` environment variable (`gcloud run services update ... --update-env-vars`), and retry. On Pro expect reads only (see DESIGN.md §9).
+## 9. ChatGPT
+The owner uses ChatGPT's native iCloud plugins separately; this server serves Claude. Nothing in this runbook sets up ChatGPT; the redirect allow-list holds only Claude's callback (plus anything the owner lists in `EXTRA_REDIRECT_URIS`).
 
 ## 10. Watching the cost
 - Console → Billing → Reports (group by service); the $1 budget emails you at 50% and 100%.
@@ -83,6 +83,26 @@ chatgpt.com/plugins → plus → Add custom MCP server → the same URL, OAuth (
 | `CREDENTIALS_REJECTED` | App-specific password revoked or mistyped, or your Apple Account password changed (that revokes all of them) |
 | Deploy fails on permissions or billing | Billing not linked, or an API still enabling; re-run |
 | Asked to sign in again after idle | Firestore state not working; check Cloud Run logs for Firestore errors |
+
+## 11b. Routine release, rollback and cleanup (after the first deploy)
+`deploy.sh` is **bootstrap only**: it refuses to run if the service exists (re-running it would reset `ALLOW_WRITES`/`WRITABLE_CALENDARS`). To ship new code, from a clean, committed tree:
+
+```
+deploy/cloudrun/release.sh
+```
+It records the serving revision and image in `deploy/cloudrun/last-release.txt`, deploys a **no-traffic** candidate (no env flags, so live settings are kept), aborts if any protected setting differs (write switch, allow-lists, extra redirect URIs, max instances, service account, secret names), smoke-tests `/ping` and an unauthenticated `/mcp` (expects 401), then moves traffic and prints the rollback command. Afterwards: claude.ai > Customize > Connectors > iCloud Calendar > Refresh tools list.
+
+**Rollback (instant, no rebuild):**
+```
+gcloud run services update-traffic icloud-mcp-server --project icloud-mcp-512404 --region us-central1 --to-revisions <previous-revision>=100
+```
+Pending confirm tokens and the outcome journal are in memory and vanish with the old instance; after a rollback or release, an operation whose outcome was `unknown` must be checked in the calendar by hand.
+
+**Cleanup:** keep the serving revision's image **and the previous one** (that is the rollback). List first (`gcloud run revisions list`, `gcloud artifacts docker images list`), then delete only older ones. Never delete the image named in `last-release.txt`.
+
+**Logs:** the app logs one `http METHOD /path -> status in N ms` line per request and `timing op=... ms=... dav_requests=...` per calendar call; neither contains query strings, headers, tokens or event text. Cloud Run's own request log (separate) records the full request URL including OAuth `code=`/`state=` query values: when pasting logs, redact them, and read logs with a short `--freshness`. Check for leaks after a release with `gcloud logging read '...' --freshness=10m` and a search for `code=`.
+
+**Settings to review before a release**: `WRITABLE_CALENDAR_IDS` is preferred over names. To migrate, read the `calendar_id`s from `list_calendars` in Claude, then (user runs it): `gcloud run services update icloud-mcp-server --project icloud-mcp-512404 --region us-central1 --update-env-vars "^|^WRITABLE_CALENDAR_IDS=cal-...,cal-..."`. The names setting stays as the fallback until you remove it; IDs win when both are set. Nothing migrates automatically.
 
 ## 12. Tearing it down and revoking
 Delete the service, the three secrets, the Firestore database and the service account in the console (or with `gcloud`), remove the GitHub OAuth App, and **revoke the app-specific password** at account.apple.com. See [SECURITY.md](../SECURITY.md#revoking-access).
