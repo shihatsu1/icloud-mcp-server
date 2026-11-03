@@ -8,7 +8,7 @@ A working personal calendar MCP with a sensible separation of backend, service a
 
 ## Updated scope decision — 3 November 2026
 
-After this assessment, the user chose native ChatGPT iCloud Calendar and iCloud Mail plugins. Custom ChatGPT support and its testing are now out of scope, rather than an outstanding feature gap. The improvement prompt instructs removal of ChatGPT-specific callback defaults, setup instructions, tests and roadmap tasks while preserving shared MCP/OAuth functionality and Claude support. Native plugins were not tested in this review. Custom Mail remains out of scope. Implementation code has not yet been changed.
+After this assessment, the user chose native ChatGPT iCloud Calendar and iCloud Mail plugins. Custom ChatGPT support and its testing are now out of scope, rather than an outstanding feature gap. The improvement prompt instructs removal of ChatGPT-specific callback defaults, setup instructions, tests and roadmap tasks while preserving shared MCP/OAuth functionality and Claude support. Native plugins were not tested in this review. Custom Mail remains out of scope. **Update (2026-11-03, later): implemented, released as Cloud Run revision `icloud-mcp-server-00009-qer` and verified on the real `TEST` calendar (create, replay, update, delete); see docs/TESTING.md and docs/FEATURES.md.**
 
 ## Fresh verification
 

@@ -90,7 +90,7 @@ The owner uses ChatGPT's native iCloud plugins separately; this server serves Cl
 ```
 deploy/cloudrun/release.sh
 ```
-It records the serving revision and image in `deploy/cloudrun/last-release.txt`, deploys a **no-traffic** candidate (no env flags, so live settings are kept), aborts if any protected setting differs (write switch, allow-lists, extra redirect URIs, max instances, service account, secret names), smoke-tests `/ping` and an unauthenticated `/mcp` (expects 401), then moves traffic and prints the rollback command. Afterwards: claude.ai > Customize > Connectors > iCloud Calendar > Refresh tools list.
+It records the serving revision and image in `deploy/cloudrun/last-release.txt`, deploys a **no-traffic** candidate (no env flags, so live settings are kept), aborts if any protected setting differs (write switch, allow-lists, extra redirect URIs, max instances, service account, secret names), smoke-tests `/ping` and an unauthenticated `/mcp` (expects 401), then moves traffic and prints the rollback command. Afterwards, if tools look stale in claude.ai, disconnect and re-add the connector (a "Refresh tools list" item is UNVERIFIED; it was absent on 2026-11-03). Then run one create, replay, update and delete on `TEST`.
 
 **Rollback (instant, no rebuild):**
 ```
