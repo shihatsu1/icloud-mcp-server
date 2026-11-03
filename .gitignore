@@ -34,3 +34,6 @@ spike/tcc_spike
 
 # Real-account test cleanup ledger
 tests/integration/.ledger.jsonl
+
+# Local record of the previous Cloud Run revision (rollback target)
+deploy/cloudrun/last-release.txt

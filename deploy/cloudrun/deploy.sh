@@ -6,7 +6,10 @@
 # command line (visible in `ps`), never echoed, never written to a file. Safe to re-run.
 set -euo pipefail
 
-PROJECT_ID="${1:?usage: deploy/cloudrun/deploy.sh PROJECT_ID}"
+# BOOTSTRAP ONLY. For routine releases of the running service use deploy/cloudrun/release.sh: this script's
+# --set-env-vars would reset the live settings (including the write allow-list) to the bootstrap defaults.
+PROJECT_ID="${1:?usage: deploy/cloudrun/deploy.sh PROJECT_ID [--bootstrap-again]}"
+BOOTSTRAP_AGAIN="${2:-}"
 REGION="${REGION:-us-central1}"          # a Tier 1 region (larger free allowances, per Google's pricing page)
 SERVICE="${SERVICE:-icloud-mcp-server}"
 SA_NAME="icloud-mcp-run"
@@ -47,12 +50,19 @@ ask_secret() { # ask_secret SECRET_NAME "prompt"  (hidden input; goes straight t
   value=""
 }
 
+if gcloud run services describe "$SERVICE" --project "$PROJECT_ID" --region "$REGION" >/dev/null 2>&1 \
+   && [ "$BOOTSTRAP_AGAIN" != "--bootstrap-again" ]; then
+  echo "The service $SERVICE already exists. Use deploy/cloudrun/release.sh for releases." >&2
+  echo "(Re-running this bootstrap resets env vars such as ALLOW_WRITES and WRITABLE_CALENDARS; pass --bootstrap-again only if you mean that.)" >&2
+  exit 3
+fi
+
 PROJECT_NUMBER="$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')"
 BASE_URL="https://${SERVICE}-${PROJECT_NUMBER}.${REGION}.run.app"
 
 say "Your service URL will be (Google's deterministic URL form)"
 echo "  $BASE_URL"
-echo "  MCP endpoint for Claude / ChatGPT:  ${BASE_URL}/mcp"
+echo "  MCP endpoint for Claude:            ${BASE_URL}/mcp"
 echo
 echo "Create a GitHub OAuth App now (GitHub > Settings > Developer settings > OAuth Apps > New):"
 echo "  Homepage URL:                ${BASE_URL}"

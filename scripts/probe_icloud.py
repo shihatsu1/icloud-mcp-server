@@ -5,7 +5,11 @@ titles, notes, attendees or credentials, and it writes nothing.
 
     export ICLOUD_APPLE_ID=you@icloud.com      # the password comes from the Keychain:
     security add-generic-password -U -s icloud-mcp-server -a "$ICLOUD_APPLE_ID" -w   # prompts
-    uv run python scripts/probe_icloud.py [--show-names] [--days 14]
+    uv run python scripts/probe_icloud.py [--show-names] [--days 14] [--deep 20]
+
+--deep N additionally reads up to N events one by one and counts (never prints) whether iCloud gives a STRONG
+ETag, whether the calendar reports itself read-only, and how many events carry organizer/attendee data. Those
+answers decide whether the hardened write path works on your account (they were UNVERIFIED on 2026-11-03).
 """
 
 from __future__ import annotations
@@ -25,6 +29,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--show-names", action="store_true")
     parser.add_argument("--days", type=int, default=14)
+    parser.add_argument("--deep", type=int, default=0, help="read up to N events and count ETag/scheduling facts")
     args = parser.parse_args()
 
     try:
@@ -54,6 +59,20 @@ def main() -> int:
         zones = Counter(e.tzid for e in events if not e.all_day)
         print("  time zones seen: " + ", ".join(f"{z}={n}" for z, n in sorted(zones.items(), key=str)))
         print(f"  occurrences with an override or exception: {sum(e.exceptions_count > 0 for e in events)}")
+        print("  calendars by source permission: " + ", ".join(
+            f"{label}={sum(c.read_only_in_source is value for c in calendars)}"
+            for label, value in (("read-only", True), ("writable", False), ("unreported", None))))
+        if args.deep:
+            seen, strong, sched = set(), 0, Counter()
+            for e in events:
+                if e.event_id in seen or len(seen) >= args.deep:
+                    continue
+                seen.add(e.event_id)
+                full = backend.get_event(e.event_id)
+                strong += bool(full.version)
+                sched.update(full.scheduling or ("none",))
+            print(f"  deep check of {len(seen)} events: strong ETag available for {strong}")
+            print("  scheduling data: " + ", ".join(f"{k}={v}" for k, v in sorted(sched.items())))
     except CalendarError as exc:
         print(f"FAILED: {exc.render()}")
         return 1

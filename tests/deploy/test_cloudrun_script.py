@@ -31,6 +31,7 @@ FAKE_GCLOUD = textwrap.dedent(
     case "$1 $2" in
       "projects describe") echo 123456789;;
       "billing projects") echo "billingAccounts/AAAAAA-BBBBBB-CCCCCC";;
+      "run services") [ "$3" = "describe" ] && [ -z "$FAKE_SERVICE_EXISTS" ] && exit 1 || exit 0;;
       "secrets describe") exit 1;;  # nothing exists yet, so the create paths run
       "firestore databases"|"iam service-accounts") [ "$3" = "describe" ] && exit 1 || exit 0;;
     esac
@@ -50,7 +51,7 @@ def run_script(tmp_path):
     logs.mkdir()
 
     def go():
-        env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "FAKE_LOG_DIR": str(logs)}
+        env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "FAKE_LOG_DIR": str(logs), "FAKE_SERVICE_EXISTS": ""}
         typed = f"\n{GITHUB_ID}\n{OWNER_ID}\n{APPLE_ID}\n{GITHUB_SECRET}\n{APP_PASSWORD}\n"
         result = subprocess.run(
             ["bash", str(SCRIPT), "my-project"], input=typed, text=True, capture_output=True, env=env, cwd=REPO, timeout=60, check=False
@@ -132,3 +133,16 @@ def test_dockerfile_turns_off_startup_network_check_and_banner():
     text = (REPO / "Dockerfile").read_text()
     assert "FASTMCP_CHECK_FOR_UPDATES=off" in text
     assert "FASTMCP_SHOW_SERVER_BANNER=false" in text
+
+
+def test_bootstrap_refuses_when_the_service_already_exists(tmp_path):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    (bin_dir / "gcloud").write_text(FAKE_GCLOUD)
+    (bin_dir / "gcloud").chmod(0o755)
+    logs = tmp_path / "logs"
+    logs.mkdir()
+    env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "FAKE_LOG_DIR": str(logs), "FAKE_SERVICE_EXISTS": "1"}
+    result = subprocess.run(["bash", str(SCRIPT), "my-project"], input="", text=True, capture_output=True, env=env, cwd=REPO, timeout=60, check=False)
+    assert result.returncode == 3 and "release.sh" in result.stderr
+    assert not (logs / "args.log").exists() or "run deploy" not in (logs / "args.log").read_text()
