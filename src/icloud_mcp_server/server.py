@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Callable
 from typing import Annotated, Any, Literal
 
@@ -56,6 +57,19 @@ def _preview(title: str) -> dict[str, Any]:
         "idempotentHint": False,
         "openWorldHint": True,
     }
+
+
+def _principal() -> str | None:
+    """Who is calling: a hash of the signed-in subject and the OAuth client. None when auth is off (local dev).
+
+    Previews and confirmations are bound to it, so an approval made in one session cannot be spent by another.
+    """
+    from fastmcp.server.dependencies import get_access_token
+
+    token = get_access_token()
+    if token is None:
+        return None
+    return hashlib.sha256(f"{token.claims.get('sub', '')}|{token.client_id}".encode()).hexdigest()[:32]
 
 
 def _guard(fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
@@ -224,6 +238,7 @@ def _register_write_tools(mcp: FastMCP, service: CalendarService, tool_auth: Aut
             notes=notes,
             alarms_minutes=alarms_minutes,
             recurrence=recurrence,
+            principal=_principal(),
         )
 
     @mcp.tool(
@@ -247,7 +262,7 @@ def _register_write_tools(mcp: FastMCP, service: CalendarService, tool_auth: Aut
             Field(description="Required for repeating events"),
         ] = None,
     ) -> ChangePreview:
-        return _guard(service.preview_update, event_id, changes, occurrence_start, scope)
+        return _guard(service.preview_update, event_id, changes, occurrence_start, scope, principal=_principal())
 
     @mcp.tool(
         name="preview_delete_event",
@@ -268,14 +283,16 @@ def _register_write_tools(mcp: FastMCP, service: CalendarService, tool_auth: Aut
             Field(description="Required for repeating events"),
         ] = None,
     ) -> ChangePreview:
-        return _guard(service.preview_delete, event_id, occurrence_start, scope)
+        return _guard(service.preview_delete, event_id, occurrence_start, scope, principal=_principal())
 
     @mcp.tool(
         name="confirm_change",
         title="Apply a confirmed change",
         description=(
             "Apply exactly the change a preview described. Call it only after the user agreed to that preview. "
-            "The token works once and expires after five minutes. The result is re-read from the calendar."
+            "The token works once and expires after five minutes. The result is re-read from the calendar and is "
+            "applied, not_applied or unknown. If it is unknown (or an answer was lost), do NOT preview and try again: "
+            "call confirm_change with the same token to re-check, and tell the user to look at the calendar."
         ),
         auth=tool_auth,
         annotations={
@@ -289,4 +306,4 @@ def _register_write_tools(mcp: FastMCP, service: CalendarService, tool_auth: Aut
     def confirm_change(
         confirm_token: Annotated[str, Field(description="confirm_token from a preview")],
     ) -> ConfirmResult:
-        return _guard(service.confirm_change, confirm_token)
+        return _guard(service.confirm_change, confirm_token, _principal())

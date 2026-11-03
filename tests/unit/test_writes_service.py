@@ -123,7 +123,9 @@ def test_confirm_creates_the_event_rereads_it_and_the_token_works_once(svc, back
     assert result.event.untrusted.title == "Dentist"
     found = svc.search_events("2026-11-02", "2026-11-02", query="dentist")
     assert [e.event_id for e in found.events] == [result.event.event_id]
-    assert code(svc.confirm_change, token) == "TOKEN_INVALID"
+    again = svc.confirm_change(token)  # a repeated confirm is answered from the journal, never written twice
+    assert again.replayed and again.result == "applied" and again.operation_id == result.operation_id
+    assert len([e for e in backend.events if e.title == "Dentist"]) == 1
     assert sum(1 for e in backend.events if e.title == "Dentist") == 1  # not created twice
 
 
@@ -321,7 +323,9 @@ def test_a_change_made_after_the_preview_is_a_conflict_and_nothing_is_written(sv
     backend.update_event("e9", {"title": "Theirs"}, scope="whole", occurrence_start=None, expected_version=None)
     assert code(svc.confirm_change, token) == "CONFLICT"
     assert backend.get_event("e9").title == "Theirs"
-    assert code(svc.confirm_change, token) == "TOKEN_INVALID"  # the token is spent; run the preview again
+    again = svc.confirm_change(token)  # the token is spent: the answer is the recorded failure, not a retry
+    assert again.replayed and again.result == "not_applied"
+    assert backend.get_event("e9").title == "Theirs"
 
 
 def test_a_write_that_does_not_stick_is_reported(svc, backend, monkeypatch):

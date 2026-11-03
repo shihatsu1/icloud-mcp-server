@@ -12,8 +12,11 @@ test and scripts/probe_icloud.py, not assumed:
 from __future__ import annotations
 
 import hashlib
+import logging
+import re
 import threading
 import time as _time
+from collections import OrderedDict
 from collections.abc import Callable
 from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
@@ -36,10 +39,13 @@ from ..core.timezones import get_zone
 from .ical_convert import component_to_event
 
 T = TypeVar("T")
+log = logging.getLogger("icloud_mcp_server.timing")
 
 ICLOUD_URL = "https://caldav.icloud.com/"
 CALENDAR_CACHE_SECONDS = 300
 REQUEST_TIMEOUT = 15
+MAX_REMEMBERED_URLS = 2000  # address cache bound
+MAX_SEARCH_OBJECTS = 2000  # per calendar and call; more means the range is too wide
 
 
 def calendar_id_for(url: Any) -> str:
@@ -91,17 +97,64 @@ class CalDavBackend:
             require_tls=not allow_insecure_http,
         )
         self._calendars: dict[str, tuple[caldav.Calendar, str]] = {}
+        self._source_read_only: dict[str, bool | None] = {}
         self._loaded_at = 0.0
-        self._urls: dict[str, str] = {}  # event_id -> address, learned from searches
+        self._urls: OrderedDict[str, str] = OrderedDict()  # event_id -> address, bounded LRU
+        self._requests = 0  # DAV requests made so far; per-call counts are logged by _run
+        self._count_requests()
+
+    def _count_requests(self) -> None:
+        try:
+            original = self._client.request
+        except AttributeError:
+            return
+
+        def counted(*args: Any, **kwargs: Any) -> Any:
+            self._requests += 1
+            return original(*args, **kwargs)
+
+        self._client.request = counted
+
+    def _remember(self, key: str, url: str) -> None:
+        self._urls[key] = url
+        self._urls.move_to_end(key)
+        while len(self._urls) > MAX_REMEMBERED_URLS:
+            self._urls.popitem(last=False)
 
     # ---- plumbing ---------------------------------------------------------------------------
 
-    def _run(self, fn: Callable[[], T]) -> T:
+    def _run(self, fn: Callable[[], T], op: str = "backend") -> T:
         with self._lock:
+            started, before, ok = _time.monotonic(), self._requests, "ok"
             try:
                 return fn()
             except Exception as exc:  # noqa: BLE001 - classified, text discarded
-                raise _classify(exc) from None
+                error = _classify(exc)
+                ok = error.code
+                raise error from None
+            finally:  # operation name, duration, request count and outcome only: no URLs, UIDs or event text
+                log.info(
+                    "timing op=%s ms=%d dav_requests=%d result=%s",
+                    op, (_time.monotonic() - started) * 1000, self._requests - before, ok,
+                )
+
+    def _sending(self, fn: Callable[[], T]) -> T:
+        """Run the one call that changes the calendar. A refusal the server clearly gave is a normal error;
+        anything else (timeout, dropped connection, odd status) leaves the outcome UNKNOWN: it may have applied."""
+        try:
+            return fn()
+        except CalendarError:
+            raise
+        except (
+            dav_error.ETagMismatchError,
+            dav_error.ScheduleTagMismatchError,
+            dav_error.NotFoundError,
+            dav_error.AuthorizationError,
+            ValueError,
+        ) as exc:
+            raise _classify(exc) from None
+        except Exception:  # noqa: BLE001 - text discarded; the service reconciles by reading
+            raise CalendarError("OUTCOME_UNKNOWN", "The request was sent but the answer was lost, so the result is unknown.") from None
 
     def _load_calendars(self, force: bool = False) -> dict[str, tuple[caldav.Calendar, str]]:
         if not force and self._calendars and _time.monotonic() - self._loaded_at < CALENDAR_CACHE_SECONDS:
@@ -115,10 +168,28 @@ class CalDavBackend:
             if components and "VEVENT" not in components:
                 continue  # reminder lists (VTODO only) are not calendars of events
             name = cal.get_display_name() or "(unnamed)"
-            found[calendar_id_for(cal.url)] = (cal, str(name))
+            cid = calendar_id_for(cal.url)
+            found[cid] = (cal, str(name))
+            self._source_read_only[cid] = self._read_only_in_source(cal)
         self._calendars = found
         self._loaded_at = _time.monotonic()
         return found
+
+    def _read_only_in_source(self, cal: caldav.Calendar) -> bool | None:
+        """True/False from the server's current-user-privilege-set; None when it does not say."""
+        body = (
+            '<?xml version="1.0" encoding="utf-8"?><D:propfind xmlns:D="DAV:">'
+            "<D:prop><D:current-user-privilege-set/></D:prop></D:propfind>"
+        )
+        try:
+            answer = self._client.propfind(str(cal.url), body, 0)
+            raw = answer.raw if isinstance(answer.raw, str) else answer.raw.decode("utf-8", "replace")
+        except Exception:  # noqa: BLE001 - unknown is an honest answer
+            return None
+        if "current-user-privilege-set" not in raw:
+            return None
+        names = set(re.findall(r"<(?:\w+:)?(write-content|write|bind|all)\b", raw))
+        return not names
 
     def _calendar(self, calendar_id: str) -> tuple[caldav.Calendar, str]:
         calendars = self._load_calendars()
@@ -139,20 +210,26 @@ class CalDavBackend:
         key = make_event_id(calendar_id, uid)
         base = str(cal.url).rstrip("/") + "/"
         guesses = [u for u in (self._urls.get(key), f"{base}{quote(uid, safe='')}.ics") if u]
+        unclear = False
         for url in dict.fromkeys(guesses):
             try:
                 obj = cal.event_by_url(url)
                 obj.load()
             except dav_error.AuthorizationError:
                 raise
+            except dav_error.NotFoundError:
+                continue  # a clean "no such address"
             except dav_error.DAVError:
+                unclear = True  # a server error is not "missing": do not turn it into a full-calendar scan
                 continue
             if str(obj.icalendar_component.get("UID", "")) == uid:
-                self._urls[key] = str(obj.url)
+                self._remember(key, str(obj.url))
                 return obj
-        for obj in cal.events():
+        if unclear:
+            raise CalendarError("ICLOUD_UNREACHABLE", "Could not get a valid answer from the calendar server.")
+        for obj in cal.events():  # only after clean 404s: the file name is not the UID
             if str(obj.icalendar_component.get("UID", "")) == uid:
-                self._urls[key] = str(obj.url)
+                self._remember(key, str(obj.url))
                 return obj
         raise dav_error.NotFoundError("no event with that UID")
 
@@ -161,11 +238,16 @@ class CalDavBackend:
     def list_calendars(self) -> list[CalendarInfo]:
         def go() -> list[CalendarInfo]:
             return [
-                CalendarInfo(calendar_id=cid, calendar_name=name, source=self._source)
+                CalendarInfo(
+                    calendar_id=cid,
+                    calendar_name=name,
+                    source=self._source,
+                    read_only_in_source=self._source_read_only.get(cid),
+                )
                 for cid, (_cal, name) in self._load_calendars().items()
             ]
 
-        return self._run(go)
+        return self._run(go, "list_calendars")
 
     def search_events(
         self, start: datetime, end: datetime, calendar_ids: list[str] | None = None
@@ -176,13 +258,16 @@ class CalDavBackend:
             events: list[Event] = []
             for cid in wanted:
                 cal, name = self._calendar(cid)
-                for obj in cal.search(event=True, start=start, end=end, expand=True):
+                found_objects = cal.search(event=True, start=start, end=end, expand=True)
+                if len(found_objects) > MAX_SEARCH_OBJECTS:
+                    raise CalendarError("INVALID_RANGE", "That range holds too many events to list; use a shorter range.")
+                for obj in found_objects:
                     comp = obj.icalendar_component
                     uid = str(comp.get("UID", ""))
                     if not uid or "DTSTART" not in comp:
                         continue
                     if getattr(obj, "url", None):
-                        self._urls[make_event_id(cid, uid)] = str(obj.url)
+                        self._remember(make_event_id(cid, uid), str(obj.url))
                     events.append(
                         component_to_event(
                             comp,
@@ -193,7 +278,7 @@ class CalDavBackend:
                     )
             return events
 
-        return self._run(go)
+        return self._run(go, "search_events")
 
     def get_event(self, event_id: str, occurrence_start: datetime | date | None = None) -> Event:
         calendar_id, uid = split_event_id(event_id)
@@ -248,7 +333,7 @@ class CalDavBackend:
                     return ev
             raise CalendarError("NOT_FOUND", "That occurrence was not found in the series.")
 
-        return self._run(go)
+        return self._run(go, "get_event")
 
     # ---- writes (milestone M4) ---------------------------------------------------------------
     # Reached only through CalendarService.confirm_change, which has already checked the allow-list,
@@ -258,7 +343,7 @@ class CalDavBackend:
     def create_event(self, new: NewEvent) -> Event:
         def go() -> Event:
             cal, _name = self._calendar(new.calendar_id)
-            uid = str(uuid4()).upper()
+            uid = new.uid or str(uuid4()).upper()  # normally fixed at preview time
             ical = ICalendar()
             ical.add("prodid", "-//icloud-mcp-server//EN")
             ical.add("version", "2.0")
@@ -275,10 +360,18 @@ class CalDavBackend:
             ical.add_component(comp)
             if not new.all_day:
                 ical.add_missing_timezones()  # TZID needs a VTIMEZONE for strict clients
-            cal.save_event(ical.to_ical().decode())
-            return self.get_event(make_event_id(new.calendar_id, uid))
+            data = ical.to_ical().decode()
+            self._sending(lambda: cal.save_event(data))
+            return self._read_back(make_event_id(new.calendar_id, uid))
 
-        return self._run(go)
+        return self._run(go, "create_event")
+
+    def _read_back(self, event_id: str, occurrence_start: datetime | date | None = None) -> Event:
+        """Re-read after a write. If that fails the write may still have applied, so the outcome is unknown."""
+        try:
+            return self.get_event(event_id, occurrence_start)
+        except CalendarError:
+            raise CalendarError("OUTCOME_UNKNOWN", "The change was sent but could not be read back, so the result is unknown.") from None
 
     def _open(self, event_id: str, expected_version: str | None):
         """Load the event and prove it is safe to write: same strong version as the preview, no guests.
@@ -329,10 +422,10 @@ class CalDavBackend:
             else:
                 target = master
             _apply(target, changes, master)
-            obj.save(precondition="etag")
-            return self.get_event(event_id, occurrence_start if scope == "occurrence" else None)
+            self._sending(lambda: obj.save(precondition="etag"))
+            return self._read_back(event_id, occurrence_start if scope == "occurrence" else None)
 
-        return self._run(go)
+        return self._run(go, "update_event")
 
     def delete_event(
         self,
@@ -345,7 +438,7 @@ class CalDavBackend:
         def go() -> None:
             obj, ical, master, components, tag = self._open(event_id, expected_version)
             if scope != "occurrence":
-                obj.delete(if_match=tag, precondition="etag")  # never an unconditional DELETE
+                self._sending(lambda: obj.delete(if_match=tag, precondition="etag"))  # never unconditional
                 return
             if occurrence_start is None:
                 raise CalendarError("INVALID_INPUT", "occurrence_start is required for one occurrence.")
@@ -353,9 +446,9 @@ class CalDavBackend:
             if override is not None:
                 ical.subcomponents = [c for c in ical.subcomponents if c is not override]
             master.add("exdate", _in_master_kind(master, occurrence_start))
-            obj.save(precondition="etag")
+            self._sending(lambda: obj.save(precondition="etag"))
 
-        self._run(go)
+        self._run(go, "delete_event")
 
 
 def _in_master_kind(master: Any, value: datetime | date) -> datetime | date:

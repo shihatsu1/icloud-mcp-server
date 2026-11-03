@@ -506,3 +506,55 @@ def test_changing_a_repeat_rule_is_refused_when_extra_repeat_dates_exist(svc, pa
     with pytest.raises(CalendarError) as err:
         svc.preview_update(eid, {"recurrence": {"frequency": "weekly"}}, scope="whole_series")
     assert err.value.code == "INVALID_INPUT"
+
+
+# ---- bounded work and honest source permissions ----------------------------------------------------
+
+
+def test_source_permission_is_reported_not_assumed(svc):
+    for c in svc.backend.list_calendars():
+        assert c.read_only_in_source in (False, None)  # the Radicale user can write; never claimed read-only
+
+
+def test_a_server_error_during_lookup_does_not_trigger_a_full_calendar_scan(svc, work_id, monkeypatch):
+    from caldav import Calendar
+    from caldav.lib import error as dav_error
+
+    scans = []
+    monkeypatch.setattr(Calendar, "events", lambda self: scans.append(1) or [])
+    monkeypatch.setattr(Calendar, "event_by_url", lambda self, url: (_ for _ in ()).throw(dav_error.ReportError("500")))
+    svc.backend._urls.clear()
+    with pytest.raises(CalendarError) as err:
+        svc.get_event(f"{work_id}~weekly-series")
+    assert err.value.code == "ICLOUD_UNREACHABLE" and scans == []
+
+
+def test_the_remembered_address_cache_is_bounded(svc, monkeypatch):
+    from icloud_mcp_server.backends import caldav_backend as mod
+
+    monkeypatch.setattr(mod, "MAX_REMEMBERED_URLS", 3)
+    for i in range(10):
+        svc.backend._remember(f"k{i}", f"http://x/{i}")
+    assert len(svc.backend._urls) == 3 and "k9" in svc.backend._urls
+
+
+def test_a_huge_result_is_refused_instead_of_loaded(svc, monkeypatch):
+    from icloud_mcp_server.backends import caldav_backend as mod
+
+    monkeypatch.setattr(mod, "MAX_SEARCH_OBJECTS", 0)
+    with pytest.raises(CalendarError) as err:
+        svc.search_events("2026-10-01", "2026-12-31")
+    assert err.value.code == "INVALID_RANGE"
+
+
+def test_timing_logs_carry_no_urls_ids_or_event_text(svc, work_id, caplog):
+    import logging
+
+    caplog.set_level(logging.INFO, logger="icloud_mcp_server.timing")
+    svc.search_events("2026-10-01", "2026-12-31", query="Weekly")
+    svc.get_event(f"{work_id}~weekly-series")
+    lines = [r.getMessage() for r in caplog.records if r.name == "icloud_mcp_server.timing"]
+    assert lines and all(l.startswith("timing op=") and "dav_requests=" in l for l in lines)
+    joined = " ".join(lines)
+    for forbidden in ("http", "weekly-series", "Weekly review", work_id):
+        assert forbidden not in joined

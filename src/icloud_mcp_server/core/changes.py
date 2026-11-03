@@ -107,7 +107,7 @@ def check_recurrence(value: Any) -> dict:
 def summarize_recurrence(rec: dict | None) -> str | None:
     if not rec:
         return None
-    unit = {"daily": "day", "weekly": "week", "monthly": "month", "yearly": "year"}.get(rec.get("frequency"), "?")
+    unit = {"daily": "day", "weekly": "week", "monthly": "month", "yearly": "year"}.get(str(rec.get("frequency")), "?")
     interval = rec.get("interval") or 1
     text = f"every {unit}" if interval == 1 else f"every {interval} {unit}s"
     if rec.get("by_weekday"):
@@ -298,7 +298,7 @@ def _until_day(value: Any, zone: ZoneInfo) -> str | None:
     return moment.date().isoformat()
 
 
-def _recurrence_key(rec: dict | None, zone: ZoneInfo):
+def _recurrence_key(rec: dict | None, zone: ZoneInfo) -> tuple[Any, ...] | None:
     if not rec:
         return None
     return (

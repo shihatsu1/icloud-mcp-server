@@ -10,6 +10,7 @@ only ever writes titles that start with "icmcp-test", and deletes only the event
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 import pytest
 
@@ -19,23 +20,29 @@ from icloud_mcp_server.core.errors import CalendarError
 from icloud_mcp_server.core.service import CalendarService
 from icloud_mcp_server.secrets import MissingCredentials, load_credentials
 
+from .ledger import Ledger
+
 pytestmark = pytest.mark.integration
 PREFIX = "icmcp-test"
+LEDGER_PATH = Path(__file__).with_name(".ledger.jsonl")  # gitignored; synthetic titles and event IDs only
+OPT_IN = "ICLOUD_TEST_WRITES"  # must be "yes": real-account writes are never implicit
 
 
 @pytest.fixture(scope="module")
 def svc():
     if not os.environ.get("ICLOUD_APPLE_ID"):
         pytest.skip("set ICLOUD_APPLE_ID to run against real iCloud")
+    if os.environ.get(OPT_IN) != "yes":
+        pytest.skip(f"set {OPT_IN}=yes to allow writes to the calendar named exactly TEST")
     try:
         creds = load_credentials()
     except MissingCredentials as exc:
         pytest.skip(str(exc))
     backend = CalDavBackend(creds.apple_id, creds.password)
-    names = [c.calendar_name for c in backend.list_calendars()]
-    if "TEST" not in names:
-        pytest.fail("No calendar named exactly TEST. Run scripts/create_test_calendar.py first. Nothing was written.")
-    return CalendarService(backend, Settings(allow_writes=True, writable_calendars=frozenset({"TEST"})))
+    test_ids = [c.calendar_id for c in backend.list_calendars() if c.calendar_name == "TEST"]
+    if len(test_ids) != 1:
+        pytest.fail(f"Expected exactly one calendar named TEST, found {len(test_ids)}. Nothing was written.")
+    return CalendarService(backend, Settings(allow_writes=True, writable_calendar_ids=frozenset(test_ids)))
 
 
 @pytest.fixture(scope="module")
@@ -44,23 +51,21 @@ def test_cal(svc):
 
 
 @pytest.fixture
-def ledger(svc):
-    """Event ids this test created. Anything left over is deleted, and only these."""
-    created: list[str] = []
-    yield created
-    for event_id in created:
-        try:
-            token = svc.preview_delete(event_id, scope="whole_series").confirm_token or svc.preview_delete(event_id).confirm_token
-            svc.confirm_change(token)
-        except CalendarError:
-            pass
+def ledger(svc, test_cal):
+    """Planned event IDs are written to disk before each confirm. Teardown removes them and FAILS if it cannot."""
+    book = Ledger(LEDGER_PATH, svc, test_cal, PREFIX)
+    book.assert_clean()  # leftovers from an earlier crashed run are cleaned (or reported) first
+    yield book
+    book.assert_clean()
 
 
 def make(svc, ledger, test_cal, **fields):
     assert fields["title"].startswith(PREFIX)
-    event = svc.confirm_change(svc.preview_create(test_cal, **fields).confirm_token).event
-    ledger.append(event.event_id)
-    return event
+    preview = svc.preview_create(test_cal, **fields)
+    ledger.plan(preview.preview["planned_event_id"])  # recorded BEFORE the write, so a lost answer is still tracked
+    result = svc.confirm_change(preview.confirm_token)
+    assert result.result == "applied", result
+    return result.event
 
 
 def delete_whole(svc, ledger, event_id):
@@ -68,7 +73,7 @@ def delete_whole(svc, ledger, event_id):
     if out.needs_input:
         out = svc.preview_delete(event_id, scope="whole_series")
     svc.confirm_change(out.confirm_token)
-    ledger.remove(event_id)
+    ledger.done(event_id)
 
 
 def test_only_the_test_calendar_is_writable(svc):

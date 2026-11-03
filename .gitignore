@@ -31,3 +31,6 @@ spike/tcc_spike
 # Editors
 .vscode/
 .idea/
+
+# Real-account test cleanup ledger
+tests/integration/.ledger.jsonl

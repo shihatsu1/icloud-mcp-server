@@ -46,7 +46,7 @@ def split_tz(value: datetime, params_tzid: str | None) -> tuple[datetime, str]:
     if _valid_zone(key):
         return value, key
     if _valid_zone(params_tzid):
-        return value.astimezone(ZoneInfo(params_tzid)), params_tzid  # type: ignore[arg-type]
+        return value.astimezone(ZoneInfo(params_tzid)), params_tzid
     if value.utcoffset() == timedelta(0) and (
         value.tzinfo is UTC or str(value.tzname()) in {"UTC", "Z"}
     ):

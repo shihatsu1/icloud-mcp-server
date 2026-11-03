@@ -53,7 +53,7 @@ class FakeBackend:
         if cal is None:
             raise CalendarError("NOT_FOUND", f"Unknown calendar_id: {new.calendar_id!r}.")
         self._seq += 1
-        event_id = f"{new.calendar_id}~created-{self._seq}"
+        event_id = f"{new.calendar_id}~{new.uid}" if new.uid else f"{new.calendar_id}~created-{self._seq}"
         recurring = new.recurrence is not None
         event = Event(
             event_id=event_id,

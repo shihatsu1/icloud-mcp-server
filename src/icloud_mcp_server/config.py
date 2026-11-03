@@ -21,7 +21,8 @@ class Settings:
     default_timezone: str = DEFAULT_TZ
     display_timezones: tuple[str, ...] = DEFAULT_DISPLAY
     allow_writes: bool = False
-    writable_calendars: frozenset[str] = frozenset()
+    writable_calendars: frozenset[str] = frozenset()  # by name (kept for compatibility)
+    writable_calendar_ids: frozenset[str] = frozenset()  # by stable calendar_id; when set, this wins
 
     def __post_init__(self) -> None:
         get_zone(self.default_timezone)
@@ -36,4 +37,5 @@ class Settings:
             display_timezones=_csv(env.get("DISPLAY_TIMEZONES")) or DEFAULT_DISPLAY,
             allow_writes=env.get("ALLOW_WRITES", "").lower() in {"1", "true", "yes"},
             writable_calendars=frozenset(_csv(env.get("WRITABLE_CALENDARS"))),
+            writable_calendar_ids=frozenset(_csv(env.get("WRITABLE_CALENDAR_IDS"))),
         )

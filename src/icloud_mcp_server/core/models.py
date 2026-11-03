@@ -16,7 +16,7 @@ class CalendarInfo:
     calendar_name: str
     source: str = "iCloud"
     color: str | None = None
-    read_only_in_source: bool = False
+    read_only_in_source: bool | None = False  # None: the server did not say
     default_timezone: str | None = None
 
 
@@ -70,6 +70,7 @@ class NewEvent:
     notes: str | None = None
     alarms_minutes: tuple[int, ...] = ()
     recurrence: dict | None = None  # structured form, see docs/TOOLS.md ($defs/recurrence)
+    uid: str | None = None  # fixed at preview time so a lost response can be reconciled by UID
 
 
 class CalendarOut(BaseModel):
@@ -78,7 +79,8 @@ class CalendarOut(BaseModel):
     source: str
     color: str | None = None
     writable_by_server: bool
-    read_only_in_source: bool
+    read_only_in_source: bool | None = Field(default=None, description="null when the source did not report permissions")
+    write_blocked_reason: str | None = None
     default_timezone: str | None = None
 
 
@@ -171,13 +173,17 @@ class ChangePreview(BaseModel):
     question: str | None = None
     preview: dict | None = Field(default=None, description="Exact before/after of the proposed change")
     confirm_token: str | None = Field(default=None, description="Pass to confirm_change to apply exactly this change")
+    operation_id: str | None = Field(default=None, description="Stable ID of this operation; quote it when reporting a problem")
     expires_at: str | None = None
     notice: str
 
 
 class ConfirmResult(BaseModel):
-    result: str
+    result: str = Field(description="applied | not_applied | unknown. On unknown, do NOT retry: check the calendar")
     action: str
+    operation_id: str | None = None
+    replayed: bool = Field(default=False, description="True when this answers an earlier confirm of the same token")
+    detail: list[str] = []
     event: EventDetail | None = Field(default=None, description="State re-read from the calendar after the change")
     message: str
     notice: str

@@ -12,10 +12,13 @@ import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
 
+from starlette.middleware import Middleware
+
 from .auth import AuthConfigError, AuthSettings, build_auth, owner_check
 from .backends.caldav_backend import CalDavBackend
 from .config import Settings
 from .core.service import CalendarService
+from .httplog import RequestTiming
 from .secrets import MissingCredentials, load_credentials
 from .server import build_server
 from .state import build_client_storage
@@ -39,6 +42,11 @@ def _parser(env: Mapping[str, str] | None = None) -> argparse.ArgumentParser:
         default="",
         help="comma-separated calendar NAMES that may be written (same as WRITABLE_CALENDARS)",
     )
+    p.add_argument(
+        "--writable-calendar-ids",
+        default="",
+        help="comma-separated stable calendar IDs (cal-...) that may be written (same as WRITABLE_CALENDAR_IDS); wins over names",
+    )
     return p
 
 
@@ -47,14 +55,15 @@ def build(args: argparse.Namespace, env: Mapping[str, str]):
     settings = Settings.from_env(env)
     allow = args.allow_writes or settings.allow_writes
     names = frozenset(n.strip() for n in args.writable_calendars.split(",") if n.strip()) or settings.writable_calendars
-    if allow and not names:
+    ids = frozenset(n.strip() for n in args.writable_calendar_ids.split(",") if n.strip()) or settings.writable_calendar_ids
+    if allow and not names and not ids:
         raise ValueError(
             "Writes are on but no calendar may be written. Name the calendars in WRITABLE_CALENDARS "
-            "(or --writable-calendars), for example TEST."
+            "(or --writable-calendars), or list their IDs in WRITABLE_CALENDAR_IDS, for example TEST."
         )
     if allow and args.dev_no_auth:
         raise ValueError("--dev-no-auth cannot be combined with writes: an unauthenticated server must stay read-only.")
-    settings = replace(settings, allow_writes=allow, writable_calendars=names)
+    settings = replace(settings, allow_writes=allow, writable_calendars=names, writable_calendar_ids=ids)
     if args.dev_no_auth:
         if args.host not in LOOPBACK:
             raise ValueError("--dev-no-auth only works with --host 127.0.0.1 (or localhost).")
@@ -101,7 +110,13 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     if args.dev_no_auth:
         print("WARNING: running WITHOUT authentication on localhost (development only).", file=sys.stderr)
     # access_log off: OAuth callback URLs carry one-time codes and must not be written to logs
-    server.run(transport="http", host=args.host, port=args.port, uvicorn_config={"access_log": False})
+    server.run(
+        transport="http",
+        host=args.host,
+        port=args.port,
+        uvicorn_config={"access_log": False},
+        middleware=[Middleware(RequestTiming)],
+    )
     return 0
 
 

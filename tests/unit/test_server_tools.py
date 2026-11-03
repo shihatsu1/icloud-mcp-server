@@ -112,8 +112,8 @@ async def test_preview_then_confirm_through_the_protocol(write_mcp):
         assert preview["confirm_token"] and preview["preview"]["action"] == "create"
         applied = data(await client.call_tool("confirm_change", {"confirm_token": preview["confirm_token"]}))
         assert applied["result"] == "applied" and applied["event"]["untrusted"]["title"] == "Dentist"
-        with pytest.raises(Exception, match="TOKEN_INVALID"):
-            await client.call_tool("confirm_change", {"confirm_token": preview["confirm_token"]})
+        again = data(await client.call_tool("confirm_change", {"confirm_token": preview["confirm_token"]}))
+        assert again["replayed"] is True and again["operation_id"] == applied["operation_id"]
         with pytest.raises(Exception, match="CALENDAR_NOT_WRITABLE"):
             await client.call_tool(
                 "preview_create_event",

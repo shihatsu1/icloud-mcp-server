@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import date, datetime, timedelta
+from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from ..backends.base import CalendarBackend
@@ -42,7 +44,7 @@ from .timezones import (
     parse_range,
 )
 from .untrusted import MAX_LOCATION, MAX_NOTES, MAX_TITLE, MAX_URL, NOTICE, clean, was_cut
-from .writes import PendingChange, PendingStore
+from .writes import OperationRecord, PendingChange, PendingStore
 
 UNTRUSTED_FIELDS = ("title", "location", "notes")  # text in previews that other people can write
 DEFAULT_LIMIT = 50
@@ -127,22 +129,35 @@ class CalendarService:
 
     # ---- tools ------------------------------------------------------------------------------
 
+    def _write_block(self, cal: CalendarInfo, all_calendars: list[CalendarInfo]) -> str | None:
+        """Why this server will not write to the calendar, or None if it may. Stable IDs beat names."""
+        if cal.read_only_in_source is True:
+            return "the calendar service reports it read-only for this account"
+        if self.settings.writable_calendar_ids:
+            if cal.calendar_id not in self.settings.writable_calendar_ids:
+                return "not on this server's writable calendar ID list"
+            return None
+        if cal.calendar_name not in self.settings.writable_calendars:
+            return "not on this server's writable calendar list"
+        same_name = sum(1 for c in all_calendars if c.calendar_name == cal.calendar_name)
+        if same_name > 1:
+            return f"{same_name} calendars share this name; list them by ID in WRITABLE_CALENDAR_IDS"
+        return None
+
     def list_calendars(self) -> list[CalendarOut]:
+        calendars = self.backend.list_calendars()
         out = []
-        for cal in self.backend.list_calendars():
-            writable = (
-                self.settings.allow_writes
-                and not cal.read_only_in_source
-                and cal.calendar_name in self.settings.writable_calendars
-            )
+        for cal in calendars:
+            reason = self._write_block(cal, calendars)
             out.append(
                 CalendarOut(
                     calendar_id=cal.calendar_id,
                     calendar_name=cal.calendar_name,
                     source=cal.source,
                     color=cal.color,
-                    writable_by_server=writable,
+                    writable_by_server=self.settings.allow_writes and reason is None,
                     read_only_in_source=cal.read_only_in_source,
+                    write_blocked_reason=None if not self.settings.allow_writes else reason,
                     default_timezone=cal.default_timezone,
                 )
             )
@@ -278,13 +293,13 @@ class CalendarService:
     def _writable_calendar(self, calendar_id: str) -> CalendarInfo:
         if not self.settings.allow_writes:
             raise CalendarError("WRITES_DISABLED", "This server is running without write access.")
-        cal = next((c for c in self.backend.list_calendars() if c.calendar_id == calendar_id), None)
+        calendars = self.backend.list_calendars()
+        cal = next((c for c in calendars if c.calendar_id == calendar_id), None)
         if cal is None:
             raise CalendarError("NOT_FOUND", f"Unknown calendar_id: {calendar_id!r}.")
-        if cal.read_only_in_source or cal.calendar_name not in self.settings.writable_calendars:
-            raise CalendarError(
-                "CALENDAR_NOT_WRITABLE", f"The calendar {cal.calendar_name!r} is not on this server's writable list."
-            )
+        reason = self._write_block(cal, calendars)
+        if reason:
+            raise CalendarError("CALENDAR_NOT_WRITABLE", f"The calendar {cal.calendar_name!r} cannot be written: {reason}.")
         return cal
 
     @staticmethod
@@ -344,11 +359,13 @@ class CalendarService:
             out["truncated_for_display"] = cut  # existing text longer than the display limit; never true for new values
         return out
 
-    def _issue(self, preview: dict, change: PendingChange) -> ChangePreview:
-        token, expires = self.store.issue(change)
+    def _issue(self, preview: dict, change: PendingChange, principal: str | None) -> ChangePreview:
+        operation_id = uuid4().hex[:16]
+        token, expires = self.store.issue(replace(change, operation_id=operation_id, principal=principal))
         return ChangePreview(
-            preview=preview,
+            preview={**preview, "operation_id": operation_id},
             confirm_token=token,
+            operation_id=operation_id,
             expires_at=datetime.fromtimestamp(expires, self.default_tz).isoformat(timespec="seconds"),
             notice="Nothing has been written yet. Show this preview to the user and call confirm_change only after they agree. " + NOTICE,
         )
@@ -385,20 +402,33 @@ class CalendarService:
             raise CalendarError("INVALID_INPUT", "occurrence_start is required with scope this_occurrence.")
         return master, self.backend.get_event(event_id, occ), "occurrence", occ
 
-    def preview_create(self, calendar_id: str, title: str, **fields) -> ChangePreview:
+    def preview_create(self, calendar_id: str, title: str, *, principal: str | None = None, **fields) -> ChangePreview:
         cal = self._writable_calendar(calendar_id)
         new = build_new_event(
             calendar_id=calendar_id, title=title, default_timezone=self.settings.default_timezone, **fields
         )
-        shown = self._planned(new, cal)
+        for earlier in self.store.unknown("create"):  # do not make a second copy of a create that may have landed
+            prior = earlier.change.payload["new"] if earlier.change else None
+            if prior and (prior.calendar_id, prior.title, prior.start, prior.end) == (new.calendar_id, new.title, new.start, new.end):
+                raise CalendarError(
+                    "OUTCOME_UNKNOWN",
+                    f"An earlier attempt to create this same event (operation {earlier.operation_id}) has an unknown outcome. "
+                    "Check the calendar, or call confirm_change with that earlier token to re-check, before creating it again.",
+                )
+        new = replace(new, uid=str(uuid4()).upper())  # fixed now, so a lost answer can be settled by looking it up
+        planned_id = f"{calendar_id}~{new.uid}"
+        shown = replace(self._planned(new, cal), event_id=planned_id)
         preview = {
             "action": "create",
             "calendar": cal.calendar_name,
+            "planned_event_id": planned_id,
             "fields": self._fields(shown),
             "untrusted_fields": list(UNTRUSTED_FIELDS),
             "recurrence_summary": summarize_recurrence(new.recurrence),
         }
-        return self._issue(preview, PendingChange("create", calendar_id, payload={"new": new, "expected": shown}))
+        return self._issue(
+            preview, PendingChange("create", calendar_id, event_id=planned_id, payload={"new": new, "expected": shown}), principal
+        )
 
     @staticmethod
     def _planned(new: NewEvent, cal: CalendarInfo) -> Event:
@@ -419,7 +449,13 @@ class CalendarService:
         )
 
     def preview_update(
-        self, event_id: str, changes: dict, occurrence_start: str | None = None, scope: str | None = None
+        self,
+        event_id: str,
+        changes: dict,
+        occurrence_start: str | None = None,
+        scope: str | None = None,
+        *,
+        principal: str | None = None,
     ) -> ChangePreview:
         found = self._scoped_target(event_id, occurrence_start, scope)
         if isinstance(found, ChangePreview):
@@ -481,7 +517,7 @@ class CalendarService:
             payload={"changes": norm, "expected": after, "keys": [k for k in norm]},
             version=master.version,
         )
-        return self._issue(preview, change)
+        return self._issue(preview, change, principal)
 
     @staticmethod
     def _differs(before: Event, after: Event, key: str, norm: dict) -> bool:
@@ -492,7 +528,7 @@ class CalendarService:
         return key in norm and getattr(before, attr) != getattr(after, attr)
 
     def preview_delete(
-        self, event_id: str, occurrence_start: str | None = None, scope: str | None = None
+        self, event_id: str, occurrence_start: str | None = None, scope: str | None = None, *, principal: str | None = None
     ) -> ChangePreview:
         found = self._scoped_target(event_id, occurrence_start, scope)
         if isinstance(found, ChangePreview):
@@ -520,37 +556,79 @@ class CalendarService:
         change = PendingChange(
             "delete", master.calendar_id, event_id=event_id, occurrence_start=_iso(occ), scope=kind, version=master.version
         )
-        return self._issue(preview, change)
+        return self._issue(preview, change, principal)
 
-    def confirm_change(self, confirm_token: str) -> ConfirmResult:
+    def confirm_change(self, confirm_token: str, principal: str | None = None) -> ConfirmResult:
+        """Apply an approved change once. A token that was already used is answered from the journal and
+        is never run again; an uncertain outcome is settled by reading the calendar, never by writing."""
         if not self.settings.allow_writes:
             raise CalendarError("WRITES_DISABLED", "This server is running without write access.")
-        change = self.store.redeem(confirm_token)
+        redeemed = self.store.redeem(confirm_token, principal)
+        if redeemed.record is not None:
+            return self._replay(redeemed.record)
+        change = redeemed.change
+        assert change is not None
+        stage = ["pre"]  # pre: nothing sent | writing: inside the backend write | post: write returned
+        try:
+            result = self._execute(change, stage)
+        except CalendarError as exc:
+            return self._failed(change, exc, stage[0])
+        self._settle(change, "applied", result.message, event_id=result.event.event_id if result.event else change.event_id)
+        return result.model_copy(update={"operation_id": change.operation_id})
+
+    def _settle(self, change: PendingChange, outcome: str, message: str, *, event_id: str | None = None, detail=()) -> OperationRecord:
+        record = OperationRecord(
+            change.operation_id, change.action, outcome, message, event_id or change.event_id,  # type: ignore[arg-type]
+            tuple(detail), change, change.principal, self.store._clock(),
+        )
+        self.store.settle(record)
+        return record
+
+    def _failed(self, change: PendingChange, exc: CalendarError, stage: str) -> ConfirmResult:
+        uncertain = (stage == "writing" and exc.code == "OUTCOME_UNKNOWN") or (
+            stage == "post" and exc.code != "WRITE_VERIFICATION_FAILED"
+        )
+        if uncertain:
+            return self._result(self._reconcile(change))
+        if stage == "post":  # sent and read back, but the calendar shows different values
+            self._settle(change, "unknown", exc.message)
+            raise exc
+        self._settle(change, "not_applied", exc.message)
+        raise exc
+
+    def _execute(self, change: PendingChange, stage: list[str]) -> ConfirmResult:
         self._writable_calendar(change.calendar_id)  # the allow-list is checked again at write time
         occ = self._parse_occurrence(change.occurrence_start)
 
         if change.action == "create":
             expected: Event = change.payload["expected"]
+            stage[0] = "writing"
             created = self.backend.create_event(change.payload["new"])
-            actual = self.backend.get_event(created.event_id)
-            self._verify(actual, expected, ["title", "location", "notes", "start", "end", "tzid", "alarms_minutes", "recurrence"])
-            return ConfirmResult(result="applied", action="create", event=self.detail(actual), message="The event was created.", notice=NOTICE)
+            stage[0] = "post"
+            created = self.backend.get_event(created.event_id)  # re-read from the calendar, not the write's own answer
+            self._verify(created, expected, ["title", "location", "notes", "start", "end", "tzid", "alarms_minutes", "recurrence"])
+            return ConfirmResult(result="applied", action="create", event=self.detail(created), message="The event was created.", notice=NOTICE)
 
+        assert change.event_id is not None
         current = self.backend.get_event(change.event_id, None)
         if change.version is not None and current.version != change.version:
             raise CalendarError("CONFLICT", "The event was changed after the preview, so nothing was written.")
+        self._refuse_guests(current)
 
         if change.action == "update":
             expected = change.payload["expected"]
+            stage[0] = "writing"
             self.backend.update_event(
-                change.event_id, change.payload["changes"], scope=change.scope, occurrence_start=occ, expected_version=change.version
+                change.event_id, change.payload["changes"], scope=change.scope or "whole", occurrence_start=occ, expected_version=change.version
             )
+            stage[0] = "post"
             actual = self.backend.get_event(change.event_id, occ if change.scope == "occurrence" else None)
-            keys = [k for k in change.payload["keys"]]
-            self._verify(actual, expected, keys)
+            self._verify(actual, expected, list(change.payload["keys"]))
             return ConfirmResult(result="applied", action="update", event=self.detail(actual), message="The event was updated.", notice=NOTICE)
 
-        self.backend.delete_event(change.event_id, scope=change.scope, occurrence_start=occ, expected_version=change.version)
+        stage[0] = "writing"
+        self.backend.delete_event(change.event_id, scope=change.scope or "whole", occurrence_start=occ, expected_version=change.version)
+        stage[0] = "post"
         try:
             still = self.backend.get_event(change.event_id, occ if change.scope == "occurrence" else None)
         except CalendarError as exc:
@@ -565,6 +643,80 @@ class CalendarService:
             "That occurrence was deleted." if change.scope == "occurrence" else "The event was deleted."
         )
         return ConfirmResult(result="applied", action="delete", event=None, message=what, notice=NOTICE)
+
+    # ---- outcomes: reconcile by reading, never by writing again -----------------------------------
+
+    def _reconcile(self, change: PendingChange) -> OperationRecord:
+        """One bounded read to learn whether an uncertain write applied."""
+        try:
+            return self._reconcile_read(change)
+        except CalendarError:
+            return self._settle(change, "unknown", "The calendar could not be read to check. Do not retry; look at the calendar.")
+
+    def _reconcile_read(self, change: PendingChange) -> OperationRecord:
+        occ = self._parse_occurrence(change.occurrence_start)
+        assert change.event_id is not None
+        if change.action == "create":
+            try:
+                actual = self.backend.get_event(change.event_id)
+            except CalendarError as exc:
+                if exc.code != "NOT_FOUND":
+                    raise
+                return self._settle(
+                    change, "unknown",
+                    "No event with the planned ID is on the calendar yet, but the request may still arrive. "
+                    "Do not create it again; check the calendar first.",
+                )
+            wrong = differences(actual, change.payload["expected"], ["title", "start", "end", "tzid", "recurrence"], self.default_tz)
+            if wrong:
+                return self._settle(change, "unknown", "An event with the planned ID exists but differs.", detail=wrong)
+            return self._settle(change, "applied", "The event was created (confirmed by reading the calendar).")
+        try:
+            actual = self.backend.get_event(change.event_id, occ if change.scope == "occurrence" else None)
+        except CalendarError as exc:
+            if exc.code != "NOT_FOUND":
+                raise
+            if change.action == "delete":
+                return self._settle(change, "applied", "The event was deleted (confirmed by reading the calendar).")
+            return self._settle(change, "unknown", "The event is no longer on the calendar. Check it.")
+        if change.action == "delete":
+            if actual.version == change.version:
+                return self._settle(change, "not_applied", "The event is unchanged, so the delete did not happen.")
+            return self._settle(change, "unknown", "The event was changed since the preview. Check it.")
+        wrong = differences(actual, change.payload["expected"], list(change.payload["keys"]), self.default_tz)
+        if not wrong and actual.version != change.version:
+            return self._settle(change, "applied", "The event was updated (confirmed by reading the calendar).", event_id=change.event_id)
+        if actual.version == change.version:
+            return self._settle(change, "not_applied", "The event is unchanged, so the update did not happen.")
+        return self._settle(change, "unknown", "The event differs from the preview. Check it.", detail=wrong)
+
+    def _result(self, record: OperationRecord, *, replayed: bool = False) -> ConfirmResult:
+        event = None
+        if record.outcome == "applied" and record.action != "delete" and record.event_id:
+            try:
+                occ = None
+                if record.change and record.change.scope == "occurrence":
+                    occ = self._parse_occurrence(record.change.occurrence_start)
+                event = self.detail(self.backend.get_event(record.event_id, occ))
+            except CalendarError:
+                event = None
+        message = record.message
+        if record.outcome == "unknown":
+            message += " (operation " + record.operation_id + "; do not retry.)"
+        return ConfirmResult(
+            result=record.outcome, action=record.action, operation_id=record.operation_id, replayed=replayed,
+            detail=list(record.detail), event=event, message=message, notice=NOTICE,
+        )
+
+    def _replay(self, record: OperationRecord) -> ConfirmResult:
+        if record.outcome == "in_progress":
+            return ConfirmResult(
+                result="unknown", action=record.action, operation_id=record.operation_id, replayed=True,
+                message="This change is still being applied. Do not retry; ask again in a moment.", notice=NOTICE,
+            )
+        if record.outcome == "unknown" and record.change is not None:
+            record = self._reconcile(record.change)  # one read; the change itself is never run again
+        return self._result(record, replayed=True)
 
     def _verify(self, actual: Event, expected: Event, keys: list[str]) -> None:
         wrong = differences(actual, expected, keys, self.default_tz)
