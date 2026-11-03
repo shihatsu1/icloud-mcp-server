@@ -1,6 +1,8 @@
 # Setup: LOCAL mode (macOS), optional and later
 
-LOCAL serves only apps installed on your Mac (Claude Desktop, Claude Code). It cannot serve browser Claude, ChatGPT or the phone; for those use [HOSTED](SETUP-HOSTED.md), which is built first. It also sees every calendar on the Mac (including Exchange), unlike hosted CalDAV.
+**Not built.** Only the permission spike exists (`spike/`); `helper/` is a placeholder. The text below is the original design.
+
+LOCAL serves only apps installed on your Mac (Claude Desktop, Claude Code). It cannot serve browser Claude or the phone; for those use [HOSTED](SETUP-HOSTED.md), which is built first. It also sees every calendar on the Mac (including Exchange), unlike hosted CalDAV.
 
 Status: **draft; steps marked (build) work only once LOCAL is built.** No password is used anywhere in this mode.
 

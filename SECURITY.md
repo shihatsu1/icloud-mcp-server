@@ -26,11 +26,11 @@ It does not reveal your Apple ID password. Whether it reaches other iCloud data 
 
 **Mail module (when enabled):** it uses the same password, so it does not widen this exposure. It does add two risks:
 - **Prompt injection through email.** Anyone can send you text aimed at the AI. In v1 the module can only read mail and create drafts (no send, delete, move or attachment download), so the worst a hijacked model can do through it is read mail and propose a draft you must still confirm and send by hand. This reduces the risk; it does not remove it.
-- **Data leaves your account.** Anything the model reads is sent to the AI provider (Anthropic or OpenAI) under their terms. The server limits result sizes and logs no mail content.
+- **Data leaves your account.** Anything the model reads is sent to the AI provider (Anthropic) under their terms. The server limits result sizes and logs no mail content.
 
 **A possible future improvement:** Apple documents an authorisation flow that avoids app-specific passwords, but it is a pilot for "supported" apps with no published way for us to qualify ([Apple developer forum](https://developer.apple.com/forums/thread/825772), Sep to Oct 2026). Not available today.
 
-**Cloud Run specifics:** the service is publicly reachable (Claude and ChatGPT cannot present Google credentials), so access control rests entirely on the app's OAuth layer, which only accepts your numeric GitHub user ID. Your Google project and account are now part of the trust chain for the app-specific password: anyone with access to the project's Secret Manager could read it, so protect the Google account with two-factor authentication. The service account has only Firestore access and read access to three secrets.
+**Cloud Run specifics:** the service is publicly reachable (Claude cannot present Google credentials), so access control rests entirely on the app's OAuth layer, which only accepts your numeric GitHub user ID. Your Google project and account are now part of the trust chain for the app-specific password: anyone with access to the project's Secret Manager could read it, so protect the Google account with two-factor authentication. The service account has only Firestore access and read access to three secrets.
 
 LOCAL mode has no such credential. Its exposure is limited to whatever can run as your macOS user.
 
@@ -38,7 +38,7 @@ LOCAL mode has no such credential. Its exposure is limited to whatever can run a
 
 - **App-specific password:** sign in at account.apple.com → Sign-In and Security → App-Specific Passwords → remove it (or revoke all). Apps using it are signed out. Changing or resetting your Apple Account password also revokes all app-specific passwords. ([Apple Support, Oct 2025](https://support.apple.com/en-us/102654))
 - **LOCAL calendar permission:** System Settings → Privacy & Security → Calendars → switch off the helper.
-- **ChatGPT / Claude connectors:** remove the connector in the app's settings, then revoke the OAuth app at your identity provider.
+- **Claude connector:** remove the connector in claude.ai (Customize > Connectors), then revoke the OAuth app at GitHub. ChatGPT's native iCloud plugins are separate and are not served by this server.
 - **If Apple Account authorisation is ever used:** account.apple.com → Sign-In and Security → Account Data Sharing → Remove access ([Apple](https://support.apple.com/en-gb/121539)).
 - **If you suspect a leak:** revoke the app-specific password first, then rotate the OAuth client secret, then check iCloud Mail rules and forwarding addresses.
 

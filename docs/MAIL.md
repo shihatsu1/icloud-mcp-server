@@ -52,10 +52,10 @@ Mail is the main channel for hostile text: anyone can email you instructions aim
 4. Drafts follow the same two-step protocol as calendar writes, with a fresh preview showing recipients and full body.
 5. Data minimisation: search limit 50, snippet 200 characters, body 20 KB.
 
-This reduces the risk and cannot remove it. Treat anything Claude or ChatGPT does after reading mail with the same care as anything else it does after reading untrusted text.
+This reduces the risk and cannot remove it. Treat anything Claude does after reading mail with the same care as anything else it does after reading untrusted text.
 
 ## 5. Privacy
-Whatever the model reads (search results, bodies) is sent to the AI provider (Anthropic or OpenAI) under that provider's terms for your plan. The server logs no mail content, subjects or addresses (see SECURITY.md); logging only tool name, result size, status and duration.
+Whatever the model reads (search results, bodies) is sent to the AI provider (Anthropic) under that provider's terms for your plan. The server logs no mail content, subjects or addresses (see SECURITY.md); logging only tool name, result size, status and duration.
 
 ## 6. Libraries
 `imap-tools` or `imapclient` for IMAP, and the standard-library `email` package for MIME parsing, with a maintained HTML-to-text converter. No hand-written MIME, header or IMAP parsing. The final pick is made at build time after checking each library's maintenance and iCloud compatibility (**UNVERIFIED** today).
@@ -67,4 +67,4 @@ Whatever the model reads (search results, bodies) is sent to the AI provider (An
 
 ## 8. Decisions needed before building
 1. Confirm v1 scope above (already chosen: read + drafts).
-2. **Decided (recommendation, 2026-10-21): Claude only.** Mail is not exposed to ChatGPT in v1. Mail is the most sensitive data and a second provider would then see it, and on a Pro plan ChatGPT very likely cannot create drafts anyway (read/fetch only; see DESIGN.md §9).
+2. **Superseded 2026-11-03: custom Mail is out of scope; the owner uses ChatGPT's native iCloud Mail plugin separately.** Original recommendation (2026-10-21), kept for history: Claude only. Mail is not exposed to ChatGPT in v1. Mail is the most sensitive data and a second provider would then see it, and on a Pro plan ChatGPT very likely cannot create drafts anyway (read/fetch only; see DESIGN.md §9).

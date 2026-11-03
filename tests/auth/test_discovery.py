@@ -1,4 +1,4 @@
-"""What Claude and ChatGPT need from the OAuth layer (docs/DESIGN.md section 4.2b)."""
+"""What Claude needs from the OAuth layer (docs/DESIGN.md section 4.2b). Generic MCP/OAuth coverage stays."""
 
 import httpx
 import pytest
@@ -45,15 +45,8 @@ async def test_authorization_server_metadata_supports_pkce_dcr_and_cimd(client):
     assert doc["issuer"].rstrip("/") == BASE
 
 
-@pytest.mark.parametrize(
-    "redirect",
-    [
-        "https://claude.ai/api/mcp/auth_callback",
-        "https://chatgpt.com/connector_platform_oauth_redirect",
-        "https://chatgpt.com/connector/oauth/abc123",
-    ],
-)
-async def test_known_clients_can_register(client, redirect):
+async def test_claude_can_register(client):
+    redirect = "https://claude.ai/api/mcp/auth_callback"
     resp = await client.post(
         "/register",
         json={
@@ -67,7 +60,16 @@ async def test_known_clients_can_register(client, redirect):
     assert resp.status_code in (200, 201), resp.text
 
 
-@pytest.mark.parametrize("redirect", ["https://evil.example/cb", "http://claude.ai/api/mcp/auth_callback"])
+@pytest.mark.parametrize(
+    "redirect",
+    [
+        "https://evil.example/cb",
+        "http://claude.ai/api/mcp/auth_callback",
+        # the removed custom-ChatGPT defaults must no longer register
+        "https://chatgpt.com/connector_platform_oauth_redirect",
+        "https://chatgpt.com/connector/oauth/abc123",
+    ],
+)
 async def test_unknown_redirect_uris_are_refused_at_registration(client, redirect):
     resp = await client.post(
         "/register",
@@ -95,3 +97,25 @@ async def test_token_endpoint_accepts_form_encoding_and_reports_oauth_errors(cli
 async def test_health_endpoint_is_open_and_reveals_nothing(client):
     resp = await client.get("/ping")
     assert resp.status_code == 200 and resp.text == "ok"
+
+
+async def test_an_explicitly_configured_extra_redirect_can_still_register(tmp_path, monkeypatch):
+    """EXTRA_REDIRECT_URIS is the supported way to admit another client; nothing is admitted silently."""
+    from dataclasses import replace
+
+    from icloud_mcp_server.auth import AuthSettings, build_auth, owner_check
+    from icloud_mcp_server.backends.fake import FakeBackend
+    from icloud_mcp_server.config import Settings
+    from icloud_mcp_server.core.service import CalendarService
+    from icloud_mcp_server.server import build_server
+    from tests.auth.conftest import KEY, OWNER
+
+    monkeypatch.setenv("FASTMCP_HOME", str(tmp_path))
+    cfg = replace(AuthSettings(BASE, "fake-client-id", "fake-client-secret", OWNER, KEY), extra_redirect_uris=("https://client.example/cb",))
+    server = build_server(CalendarService(FakeBackend(), Settings()), auth=build_auth(cfg), tool_auth=owner_check(OWNER))
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=server.http_app()), base_url=BASE) as c:
+        body = {"client_name": "x", "grant_types": ["authorization_code"], "response_types": ["code"], "token_endpoint_auth_method": "none"}
+        ok = await c.post("/register", json={**body, "redirect_uris": ["https://client.example/cb"]})
+        assert ok.status_code in (200, 201), ok.text
+        no = await c.post("/register", json={**body, "redirect_uris": ["https://chatgpt.com/connector_platform_oauth_redirect"]})
+        assert no.status_code == 400

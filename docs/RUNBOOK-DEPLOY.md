@@ -2,7 +2,7 @@
 
 > The free route is [RUNBOOK-CLOUDRUN.md](RUNBOOK-CLOUDRUN.md). Use this page only if Cloud Run does not work out. On Fly the server fits the 256 MB machine (about $2.19/month; it peaked near 91 MB right after start-up in a sandbox measurement, not measured under load), so you can set `memory = "256mb"` in `fly.toml` and recheck with `fly logs` for out-of-memory restarts.
 
-Status: written 2026-10-21 for milestone M3. **Nothing here has been run against real GitHub, Fly.io, iCloud, Claude or ChatGPT**: the code was tested with fakes and a local CalDAV server. The first real deployment is the first real test, so expect to fix small things. Report what you see and I will help.
+Status: written 2026-10-21 for milestone M3. **Nothing here has been run against real GitHub, Fly.io, iCloud, or Claude** when it was written: the code was tested with fakes and a local CalDAV server. The first real deployment is the first real test, so expect to fix small things. Report what you see and I will help.
 
 **Golden rule:** your app-specific password is typed only into your own terminal, into Fly's secret store. Never paste it into a chat (including with Claude), a file in this repo, or a command line argument.
 
@@ -81,8 +81,8 @@ Per Anthropic's [custom connector article](https://support.claude.com/en/article
 
 Try: "What's on my iCloud calendar tomorrow?" and "Find a 1-hour slot this week that works in both Tokyo and Manila working hours." Tell me what happens, including any error text.
 
-## 9. ChatGPT (read-only on Pro)
-Per OpenAI's [connect page](https://developers.openai.com/apps-sdk/deploy/connect-chatgpt): chatgpt.com/plugins → plus → Add custom MCP server → the same URL, OAuth. The server already allows both of ChatGPT's documented redirect forms ([OpenAI auth page](https://developers.openai.com/apps-sdk/build/auth)). If registration fails with a redirect error, copy the redirect URI ChatGPT shows and add it to the `EXTRA_REDIRECT_URIS` secret (comma separated, https only), then redeploy. On a Pro plan expect reads only (secondary sources; see docs/DESIGN.md §9).
+## 9. ChatGPT
+The owner uses ChatGPT's native iCloud plugins separately; this server serves Claude. (Section removed 2026-11-03.)
 
 ## 10. If something looks wrong
 | Symptom | Likely cause |

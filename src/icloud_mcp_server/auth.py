@@ -1,7 +1,7 @@
 """OAuth for the hosted server: only the owner's GitHub account may use it.
 
-FastMCP's OAuth proxy fronts GitHub. Claude and ChatGPT register with this server (CIMD or DCR) and
-this server issues them tokens, but every request is re-validated against the owner's numeric GitHub
+FastMCP's OAuth proxy fronts GitHub. Claude registers with this server (CIMD or DCR) and
+this server issues it tokens, but every request is re-validated against the owner's numeric GitHub
 user ID, so a stranger who signs in with GitHub gets a token that is rejected everywhere. A second,
 per-tool check repeats the test (defence in depth). FastMCP has no built-in single-user allow-list
 (docs reviewed 2026-10-21; verified against the installed 4.1.3), so this is our code and our tests.
@@ -22,14 +22,10 @@ from mcp.server.auth.provider import TokenError
 
 log = logging.getLogger("icloud_mcp_server.auth")
 
-# Redirect URIs of the clients we expect. Claude: https://claude.ai/api/mcp/auth_callback
-# (Anthropic connector docs). ChatGPT uses one of two forms depending on RFC 9207 issuer support
-# (OpenAI Apps SDK auth page, 2026-10-21). Anything else is refused at registration.
-DEFAULT_REDIRECT_URIS = (
-    "https://claude.ai/api/mcp/auth_callback",
-    "https://chatgpt.com/connector_platform_oauth_redirect",
-    "https://chatgpt.com/connector/oauth/*",
-)
+# The one client this server is built for: Claude (https://claude.ai/api/mcp/auth_callback, Anthropic connector
+# docs). Anything else is refused at registration unless the owner lists it in EXTRA_REDIRECT_URIS. The
+# earlier custom-ChatGPT callbacks were removed on 2026-11-03: the owner uses ChatGPT's native iCloud plugins.
+DEFAULT_REDIRECT_URIS = ("https://claude.ai/api/mcp/auth_callback",)
 GITHUB_SCOPES = ["read:user"]  # identity only; FastMCP's default would be the broader "user"
 
 

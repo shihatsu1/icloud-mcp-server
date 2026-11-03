@@ -1,6 +1,9 @@
 # DESIGN: iCloud Calendar MCP server (Phase 1)
 
-Status: draft for approval. Written 2026-10-21. Nothing is built.
+Status: written 2026-10-21 as a draft; the HOSTED mode was then built and is live (see README and docs/FEATURES.md). Notes dated later override the original text below.
+Convention: **UNVERIFIED** = not confirmed against current official documentation.
+
+> **Superseded 2026-11-03 (scope):** the custom ChatGPT integration was dropped. The owner uses ChatGPT's native iCloud plugins separately; this server serves Claude. Wherever this document discusses ChatGPT redirect URIs, scopes (decisions 10 and 11), read-only ChatGPT access or the ChatGPT verification rows, read it as historical. Generic MCP/OAuth behavior (CIMD, dynamic registration, hashed URL-shaped client IDs, encrypted state, owner-only checks) is unchanged because Claude needs it. The local EventKit mode (§2, §3.1) is **not built**; only the permission spike exists.
 Convention: **UNVERIFIED** = not confirmed against current official documentation.
 
 ## 1. Goals and non-negotiables
@@ -71,7 +74,7 @@ Limits of this design: a prompt-injected event description ("ignore previous ins
 Python, FastMCP, `caldav` (CalDAV client), `icalendar` (parse/emit), `recurring-ical-events` (expansion). No custom RRULE code.
 
 ### 4.2 Auth layer (so only you can use it)
-ChatGPT requires ([Apps SDK auth](https://developers.openai.com/apps-sdk/build/auth), undated page; **recheck at build time**): OAuth 2.1 authorization-code + PKCE (S256), protected-resource metadata, and one of CIMD / DCR / predefined client. It does not support static API keys. [FastMCP](https://gofastmcp.com/servers/auth/authentication) offers `OAuthProxy` (e.g. GitHub login) and token verification. Plan: single-user login via an identity provider, with the server **rejecting any account except your own** (explicit allow-list of one subject ID). Whether FastMCP can enforce that restriction directly is **UNVERIFIED**; if not, we add a check in the token-verification step. Important: FastMCP's default is *no auth*, so tests must assert that an unauthenticated request gets 401.
+*(Historical, superseded 2026-11-03.)* ChatGPT required ([Apps SDK auth](https://developers.openai.com/apps-sdk/build/auth), undated page; **recheck at build time**): OAuth 2.1 authorization-code + PKCE (S256), protected-resource metadata, and one of CIMD / DCR / predefined client. It does not support static API keys. [FastMCP](https://gofastmcp.com/servers/auth/authentication) offers `OAuthProxy` (e.g. GitHub login) and token verification. Plan: single-user login via an identity provider, with the server **rejecting any account except your own** (explicit allow-list of one subject ID). Whether FastMCP can enforce that restriction directly is **UNVERIFIED**; if not, we add a check in the token-verification step. Important: FastMCP's default is *no auth*, so tests must assert that an unauthenticated request gets 401.
 
 ### 4.2b What Claude's and FastMCP's docs require (verified 2026-10-21)
 From Anthropic's connector docs ([Authentication](https://claude.com/docs/connectors/building/authentication), [Build an MCP server](https://claude.com/docs/connectors/building/index); undated):
@@ -89,7 +92,7 @@ From FastMCP's docs ([OAuth Proxy](https://gofastmcp.com/servers/auth/oauth-prox
 
 Built and tested in M3 (fake credentials, in-process and local HTTP; **not** against real GitHub, Claude or ChatGPT):
 - Unauthenticated `/mcp` returns 401 with a `resource_metadata` pointer; protected-resource metadata `resource` equals `<base>/mcp`; authorization-server metadata advertises S256, a registration endpoint, `client_id_metadata_document_supported: true` and `none` as a token auth method; `/token` accepts form-encoded bodies.
-- Registration is limited to Claude's callback and ChatGPT's two documented forms (`https://chatgpt.com/connector_platform_oauth_redirect`, `https://chatgpt.com/connector/oauth/{id}`; [OpenAI](https://developers.openai.com/apps-sdk/build/auth)); other redirects get HTTP 400.
+- *(Updated 2026-11-03: the ChatGPT forms were removed; only Claude's callback is a default, plus the owner's `EXTRA_REDIRECT_URIS`.)* Originally registration was limited to Claude's callback and ChatGPT's two documented forms (`https://chatgpt.com/connector_platform_oauth_redirect`, `https://chatgpt.com/connector/oauth/{id}`; [OpenAI](https://developers.openai.com/apps-sdk/build/auth)); other redirects get HTTP 400.
 - Owner-only: the upstream verifier is wrapped so only the owner's numeric GitHub user ID passes on every request, and each tool repeats the check. Over real HTTP, a non-owner sees **no tools** (FastMCP answers "Unknown tool"), which resolves the earlier open question: unauthorised tools are hidden, not just rejected.
 - GitHub is asked for `read:user` only (FastMCP's default would be the broader `user`). Whether GitHub accepts this scope in the verifier's checks is **UNVERIFIED** until the first real sign-in.
 - Uvicorn's access log is disabled because OAuth callback URLs carry one-time codes.
@@ -148,11 +151,17 @@ Recorded 2026-10-21 (later):
 8. **Spike:** passed on macOS 27.0.1 (§3).
 9. **Friction:** the two-step write protocol means one extra "yes" in chat per change. A one-step mode that leans on the AI app's own approval prompt would be an opt-in, only after confirming those prompts show the exact arguments on every surface you use. No change made.
 
-10. **ChatGPT is read-only (decided 2026-10-21).** On your Pro plan, ChatGPT very likely cannot use write tools on custom MCP connectors (§9). Events are added through Claude (browser, phone, desktop). The iCloud account is a personal Apple Account.
-11. **Read-only scope for ChatGPT:** the server issues separate OAuth scopes, `calendar.read` and `calendar.write`. The ChatGPT connection is granted `calendar.read` only, so write tools are not offered to it; Claude's connection gets both. Whether FastMCP can hide tools per scope is **UNVERIFIED** and is tested at build time. Fallback: `confirm_change` rejects any token without `calendar.write`, with a clear error.
-12. **Mail goes to Claude only** in v1 (see MAIL.md), not to ChatGPT.
+10. *(Superseded 2026-11-03: no custom ChatGPT.)* **ChatGPT is read-only (decided 2026-10-21).** On your Pro plan, ChatGPT very likely cannot use write tools on custom MCP connectors (§9). Events are added through Claude (browser, phone, desktop). The iCloud account is a personal Apple Account.
+11. *(Superseded 2026-11-03: per-scope OAuth for ChatGPT will not be built.)* **Read-only scope for ChatGPT:** the server issues separate OAuth scopes, `calendar.read` and `calendar.write`. The ChatGPT connection is granted `calendar.read` only, so write tools are not offered to it; Claude's connection gets both. Whether FastMCP can hide tools per scope is **UNVERIFIED** and is tested at build time. Fallback: `confirm_change` rejects any token without `calendar.write`, with a clear error.
+12. *(Custom Mail is out of scope as of 2026-11-03.)* **Mail goes to Claude only** in v1 (see MAIL.md), not to ChatGPT.
 
 **Remaining open risk:** the ChatGPT finding above is secondary-source only. If OpenAI's page, read in a browser, says otherwise, the scope in item 11 can simply be widened.
+
+## 8b. Confirmation state and outcomes (2026-11-03)
+- **State stays in memory.** Cloud Run runs `--max-instances 1`; a token lives five minutes. A restart drops pending approvals, which is the safe direction (the user previews again). Durable state (Firestore) would add 50-150 ms per write and a second place that can disagree with the calendar, for no safety gain: what must survive a restart is the truth about the *calendar*, and that is read from the calendar. If the service ever runs more than one instance, this decision must be revisited (a token redeemed on another instance would not be found).
+- **Every approved operation has an `operation_id`; a create fixes its UID at preview time.** Outcome is `applied`, `not_applied` or `unknown`. A lost answer is settled by *reading* (create: the planned UID exists; update: values match and the version moved; delete: gone, or the version is unchanged). A write is never silently retried; a reused token returns the journal entry (200 entries, one hour) and an unknown outcome gets one more read per ask. A second create preview identical to an unknown one is refused.
+- **Tokens are bound** to the previewing principal (hash of the GitHub subject and OAuth client) and are sealed copies; they cannot be spent by another sign-in. A restart loses the journal, so after a restart an unknown outcome must be checked in the calendar by hand (the planned event ID is in the preview).
+- **Conditional writes:** python-caldav sends `If-Match` only when a strong ETag is cached and deletes unconditionally unless `if_match` is given, so the backend demands a strong ETag equal to the previewed version and fails closed (`VERSION_UNAVAILABLE`). `If-None-Match: *` on create was *not* adopted because iCloud's behavior is UNVERIFIED and the UID is unique and fixed anyway.
 
 ## 9. Verification log (2026-10-21)
 What happened to the items earlier marked UNVERIFIED. "Still" means I could not settle it from here.

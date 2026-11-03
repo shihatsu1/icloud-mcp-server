@@ -1,4 +1,4 @@
-# Setup: HOSTED mode (browser Claude, ChatGPT, iPhone connector)
+# Setup: HOSTED mode (browser Claude, iPhone connector)
 
 This is the **primary** setup. The step-by-step procedure for the free route is [RUNBOOK-CLOUDRUN.md](RUNBOOK-CLOUDRUN.md) (Google Cloud Run); [RUNBOOK-DEPLOY.md](RUNBOOK-DEPLOY.md) is the paid Fly.io alternative. This page is the overview, and its Fly.io-specific sections are the alternative route. Status: the read-only server exists (milestones M1 to M3); writes and mail do not yet.
 
@@ -38,17 +38,14 @@ Anthropic's [custom connector article](https://support.claude.com/en/articles/11
 3. Try a read first: "What's on my iCloud calendar tomorrow?"
 4. The iPhone app uses connectors added on the web (older Anthropic documentation; partly **UNVERIFIED**).
 
-## 6. Add to ChatGPT (build)
-Per OpenAI's [Connect from ChatGPT](https://developers.openai.com/apps-sdk/deploy/connect-chatgpt) page: chatgpt.com/plugins → plus button → "Add custom MCP server", the same URL, authentication OAuth. ChatGPT does not accept static API keys ([Apps SDK auth](https://developers.openai.com/apps-sdk/build/auth)).
-
-1. Test read tools first.
-2. **Expect read-only on a Pro plan.** OpenAI's help text (as relayed by secondary sources; the page itself was unreadable to me) limits Plus/Pro custom MCP connectors to read and fetch; write actions are Business/Enterprise/Edu. The ChatGPT connection therefore gets the `calendar.read` scope only. To add events, use Claude.
+## 6. ChatGPT
+The owner uses ChatGPT's native iCloud plugins separately; this server serves Claude. There is no custom ChatGPT setup here (removed 2026-11-03).
 
 ## 7. Writes: how "add this to my calendar" works
-You say it in a Claude chat. Claude calls `preview_create_event`, which returns a **preview**; Claude shows it, you say yes, and it calls `confirm_change`. One extra "yes" per change, by design. ChatGPT (read-only scope) can look at your calendar but not make this call.
+You say it in a Claude chat. Claude calls `preview_create_event`, which returns a **preview**; Claude shows it, you say yes, and it calls `confirm_change`. One extra "yes" per change, by design.
 
 ## 8. Mail (optional, later)
-After calendar works: start the server with `--enable-mail` (read + drafts only; Claude only, not ChatGPT; see [MAIL.md](MAIL.md)).
+After calendar works: start the server with `--enable-mail` (read + drafts only; Claude only; see [MAIL.md](MAIL.md)).
 
 ## 9. Revoking
 See [SECURITY.md](../SECURITY.md#revoking-access).

@@ -2,7 +2,7 @@
 # Prices (Fly docs, undated): shared-cpu-1x 512MB about $3.69/month running continuously,
 # 1GB volume about $0.15/month. Recheck before relying on them.
 app = "CHANGE-ME-icloud-mcp"
-primary_region = "iad"   # price listed for Ashburn; Claude and ChatGPT call from US clouds
+primary_region = "iad"   # price listed for Ashburn; Claude calls from US clouds
 
 [build]
   dockerfile = "Dockerfile"

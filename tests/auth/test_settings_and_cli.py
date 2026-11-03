@@ -112,3 +112,9 @@ def test_port_defaults_to_cloud_runs_port_variable():
 def test_bad_state_backend_stops_the_server_with_a_clear_error(capsys):
     assert run([], {**GOOD, "STATE_BACKEND": "nope"}) == 2
     assert "STATE_BACKEND" in capsys.readouterr().err
+
+
+def test_defaults_accept_only_claude_and_extra_redirects_still_work():
+    s = AuthSettings.from_env({**GOOD, "EXTRA_REDIRECT_URIS": "https://client.example/cb"})
+    assert s.redirect_uris == ["https://claude.ai/api/mcp/auth_callback", "https://client.example/cb"]
+    assert not any("chatgpt" in u for u in AuthSettings.from_env(GOOD).redirect_uris)
