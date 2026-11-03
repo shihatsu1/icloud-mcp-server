@@ -337,3 +337,172 @@ def test_an_event_with_guests_is_refused_on_a_real_server_too(svc, parts):
         with pytest.raises(CalendarError) as err:
             call()
         assert err.value.code == "HAS_GUESTS"
+
+
+# ---- hardening regressions (2026-11-03 assessment) --------------------------------------------------
+
+
+def _cid(svc):
+    return next(c.calendar_id for c in svc.backend.list_calendars() if c.calendar_name == "Work")
+
+
+def _edit_elsewhere(svc, event_id, title="Theirs"):
+    cid, uid = event_id.split("~", 1)
+    cal, _ = svc.backend._calendar(cid)
+    obj = cal.event_by_uid(uid)
+    obj.icalendar_instance.walk("VEVENT")[0]["SUMMARY"] = title
+    obj.save()
+
+
+def _race_after_open(svc, event_id, monkeypatch):
+    """Someone else edits the event AFTER the version check and BEFORE the write."""
+    real = svc.backend._open
+
+    def racing(eid, expected):
+        out = real(eid, expected)
+        _edit_elsewhere(svc, event_id)
+        return out
+
+    monkeypatch.setattr(svc.backend, "_open", racing)
+
+
+def test_delete_cannot_remove_an_event_edited_after_the_version_check(svc, work_id, monkeypatch):
+    eid = apply(svc, svc.preview_create(work_id, **TIMED)).event.event_id
+    token = svc.preview_delete(eid).confirm_token
+    _race_after_open(svc, eid, monkeypatch)
+    with pytest.raises(CalendarError) as err:
+        svc.confirm_change(token)
+    assert err.value.code == "CONFLICT"
+    assert svc.get_event(eid).untrusted.title == "Theirs"  # still there, with the other edit
+
+
+def test_update_cannot_overwrite_an_event_edited_after_the_version_check(svc, work_id, monkeypatch):
+    eid = apply(svc, svc.preview_create(work_id, **TIMED)).event.event_id
+    token = svc.preview_update(eid, {"title": "Mine"}).confirm_token
+    _race_after_open(svc, eid, monkeypatch)
+    with pytest.raises(CalendarError) as err:
+        svc.confirm_change(token)
+    assert err.value.code == "CONFLICT"
+    assert svc.get_event(eid).untrusted.title == "Theirs"
+
+
+class _NoStrongTag:
+    """A stand-in for a caldav object whose server gave no usable (strong) ETag."""
+
+    def __init__(self, etag):
+        self.etag, self.url, self.calls = etag, "http://x/cal/e.ics", []
+        from icalendar import Calendar, Event
+
+        self.icalendar_instance = Calendar()
+        ev = Event()
+        ev.add("uid", "e")
+        ev.add("summary", "x")
+        self.icalendar_instance.add_component(ev)
+
+    def delete(self, *a, **k):
+        self.calls.append("delete")
+
+    def save(self, *a, **k):
+        self.calls.append("save")
+
+
+@pytest.mark.parametrize("etag", [None, 'W/"abc"'])
+def test_writes_are_refused_when_no_strong_version_is_available(svc, work_id, monkeypatch, etag):
+    stub = _NoStrongTag(etag)
+    monkeypatch.setattr(svc.backend, "_event_by_uid", lambda *a, **k: stub)
+    for call in (
+        lambda: svc.backend.delete_event(f"{work_id}~e", scope="whole", occurrence_start=None, expected_version=etag),
+        lambda: svc.backend.update_event(
+            f"{work_id}~e", {"title": "y"}, scope="whole", occurrence_start=None, expected_version=etag
+        ),
+    ):
+        with pytest.raises(CalendarError) as err:
+            call()
+        assert err.value.code == "VERSION_UNAVAILABLE"
+    assert stub.calls == []  # nothing was sent
+
+
+GUEST_SERIES_OVERRIDE = """BEGIN:VEVENT
+UID:guest-series
+DTSTAMP:20261001T000000Z
+RECURRENCE-ID;TZID=Asia/Manila:20261027T150000
+DTSTART;TZID=Asia/Manila:20261027T170000
+DTEND;TZID=Asia/Manila:20261027T180000
+SUMMARY:Standup (moved)
+ORGANIZER:mailto:me@example.com
+ATTENDEE:mailto:friend@example.com
+END:VEVENT
+"""
+GUEST_SERIES_MASTER = fx.WEEKLY_MASTER.replace("weekly-series", "guest-series").replace(
+    "Weekly review", "Standup"
+).replace("EXDATE;TZID=Asia/Manila:20261103T150000\n", "")
+
+
+def test_guests_on_a_detached_occurrence_block_every_write_to_the_series(svc, parts):
+    _backend, work = parts
+    work.save_event(fx.wrap(GUEST_SERIES_MASTER, GUEST_SERIES_OVERRIDE))
+    eid = f"{_cid(svc)}~guest-series"
+    plain = "2026-10-20T15:00:00+08:00"  # an occurrence with no guests of its own
+    moved = "2026-10-27T15:00:00+08:00"
+    calls = [
+        lambda: svc.preview_delete(eid, plain, "this_occurrence"),
+        lambda: svc.preview_delete(eid, moved, "this_occurrence"),
+        lambda: svc.preview_delete(eid, None, "whole_series"),
+        lambda: svc.preview_update(eid, {"title": "x"}, plain, "this_occurrence"),
+        lambda: svc.preview_update(eid, {"title": "x"}, moved, "this_occurrence"),
+        lambda: svc.preview_update(eid, {"title": "x"}, None, "whole_series"),
+    ]
+    for call in calls:
+        with pytest.raises(CalendarError) as err:
+            call()
+        assert err.value.code == "HAS_GUESTS"
+
+
+def test_the_backend_rechecks_guests_at_write_time(svc, parts, work_id):
+    backend, work = parts
+    work.save_event(fx.wrap(GUEST_SERIES_MASTER, GUEST_SERIES_OVERRIDE))
+    eid = f"{_cid(svc)}~guest-series"
+    version = backend.get_event(eid).version
+    with pytest.raises(CalendarError) as err:
+        backend.delete_event(eid, scope="whole", occurrence_start=None, expected_version=version)
+    assert err.value.code == "HAS_GUESTS"
+    assert svc.get_event(eid).untrusted.title == "Standup"  # untouched
+
+
+def _expanded(svc, eid):
+    import recurring_ical_events
+    from icalendar import Calendar
+
+    cal = Calendar.from_ical(raw(svc, eid))
+    return recurring_ical_events.of(cal).between((2026, 1, 1), (2028, 12, 31))
+
+
+RDATE_SERIES = """BEGIN:VEVENT
+UID:rdate-series
+DTSTAMP:20261001T000000Z
+DTSTART;TZID=Asia/Manila:20261020T150000
+DTEND;TZID=Asia/Manila:20261020T160000
+RRULE:FREQ=DAILY;COUNT=3
+RDATE;TZID=Asia/Manila:20270105T150000
+EXDATE;TZID=Asia/Manila:20261021T150000
+SUMMARY:Odd series
+END:VEVENT
+"""
+
+
+def test_removing_the_repeat_removes_extra_repeat_dates_too(svc, parts):
+    _backend, work = parts
+    work.save_event(fx.wrap(RDATE_SERIES))
+    eid = f"{_cid(svc)}~rdate-series"
+    assert len(_expanded(svc, eid)) == 3  # 20th, 22nd, plus the extra date
+    apply(svc, svc.preview_update(eid, {"recurrence": None}, scope="whole_series"))
+    assert len(_expanded(svc, eid)) == 1
+
+
+def test_changing_a_repeat_rule_is_refused_when_extra_repeat_dates_exist(svc, parts):
+    _backend, work = parts
+    work.save_event(fx.wrap(RDATE_SERIES.replace("EXDATE;TZID=Asia/Manila:20261021T150000\n", "")))
+    eid = f"{_cid(svc)}~rdate-series"
+    with pytest.raises(CalendarError) as err:
+        svc.preview_update(eid, {"recurrence": {"frequency": "weekly"}}, scope="whole_series")
+    assert err.value.code == "INVALID_INPUT"

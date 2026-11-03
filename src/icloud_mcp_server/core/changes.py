@@ -14,10 +14,11 @@ from zoneinfo import ZoneInfo
 from .errors import CalendarError
 from .models import FLOATING, Event, NewEvent
 from .timezones import as_aware, get_zone
+from .untrusted import MAX_LOCATION, MAX_NOTES, MAX_TITLE, strip_control
 
-MAX_TITLE_IN = 500
-MAX_LOCATION_IN = 500
-MAX_NOTES_IN = 5000
+MAX_TITLE_IN = MAX_TITLE  # input limits equal display limits: a preview never truncates a written value
+MAX_LOCATION_IN = MAX_LOCATION
+MAX_NOTES_IN = MAX_NOTES
 MAX_ALARMS = 5
 MAX_ALARM_MINUTES = 40320  # four weeks
 WEEKDAYS = ("MO", "TU", "WE", "TH", "FR", "SA", "SU")
@@ -37,7 +38,7 @@ def _text(value: Any, name: str, limit: int, *, required: bool = False) -> str |
         return None
     if not isinstance(value, str):
         raise _bad(f"{name} must be text.")
-    text = value.replace("\x00", "").strip()
+    text = strip_control(value).strip()
     if required and not text:
         raise _bad(f"{name} must not be empty.")
     if len(text) > limit:
@@ -284,7 +285,20 @@ def _same_text(a: str | None, b: str | None) -> bool:
     return (a or "").strip() == (b or "").strip()
 
 
-def _recurrence_key(rec: dict | None):
+def _until_day(value: Any, zone: ZoneInfo) -> str | None:
+    """UNTIL as a local calendar date: a date stays, a UTC or zoned time is converted to the event's zone."""
+    if not value:
+        return None
+    text = str(value).strip()
+    if len(text) == 10:
+        return text
+    moment = datetime.fromisoformat(text)  # Python 3.11+ accepts a trailing Z
+    if moment.tzinfo is not None:
+        moment = moment.astimezone(zone)
+    return moment.date().isoformat()
+
+
+def _recurrence_key(rec: dict | None, zone: ZoneInfo):
     if not rec:
         return None
     return (
@@ -293,6 +307,8 @@ def _recurrence_key(rec: dict | None):
         tuple(sorted(rec.get("by_weekday") or [])),
         tuple(sorted(rec.get("by_month_day") or [])),
         rec.get("count"),
+        _until_day(rec.get("until"), zone),
+        tuple(sorted(rec.get("other_parts") or [])),  # rule parts we cannot represent are never "equal"
     )
 
 
@@ -313,7 +329,10 @@ def differences(actual: Event, expected: Event, keys: list[str], default_tz: Zon
         elif key == "alarms_minutes":
             ok = tuple(sorted(actual.alarms_minutes)) == tuple(sorted(expected.alarms_minutes))
         elif key == "recurrence":
-            ok = _recurrence_key(actual.recurrence) == _recurrence_key(expected.recurrence)
+            zone = get_zone(actual.tzid) if actual.tzid and actual.tzid != FLOATING else default_tz
+            ok = _recurrence_key(actual.recurrence, zone) == _recurrence_key(expected.recurrence, zone)
+            if expected.recurrence is None and actual.is_recurring:  # e.g. a leftover RDATE
+                ok = False
         else:
             ok = True
         if not ok:

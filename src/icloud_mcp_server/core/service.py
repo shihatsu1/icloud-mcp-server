@@ -41,9 +41,10 @@ from .timezones import (
     parse_instant,
     parse_range,
 )
-from .untrusted import MAX_LOCATION, MAX_NOTES, MAX_TITLE, MAX_URL, NOTICE, clean
+from .untrusted import MAX_LOCATION, MAX_NOTES, MAX_TITLE, MAX_URL, NOTICE, clean, was_cut
 from .writes import PendingChange, PendingStore
 
+UNTRUSTED_FIELDS = ("title", "location", "notes")  # text in previews that other people can write
 DEFAULT_LIMIT = 50
 MAX_LIMIT = 200
 
@@ -287,18 +288,45 @@ class CalendarService:
         return cal
 
     @staticmethod
-    def _refuse_guests(event: Event) -> None:
-        """Changing or deleting an event with guests can make iCloud email them, so it is never done here."""
-        if event.attendees:
+    def _refuse_guests(*events: Event) -> None:
+        """Changing or deleting an event with guests can make iCloud email them, so it is never done here.
+
+        Every write replaces the whole stored resource, so guests or scheduling data on ANY part of the
+        series (the master, the targeted occurrence, a detached override) block the operation.
+        """
+        for event in events:
+            if event.attendees or event.scheduling:
+                title = clean(event.title, MAX_TITLE)
+                has = (
+                    f"has {len(event.attendees)} guest(s) or is an invitation"
+                    if event.attendees
+                    else "has scheduling data (an organizer or invitation)"
+                )
+                raise CalendarError(
+                    "HAS_GUESTS",
+                    f"'{title}' {has}. Changing or deleting it could send email to the guests, which this server does not do.",
+                )
+
+    @staticmethod
+    def _require_version(event: Event) -> None:
+        """Fail closed: without a strong version the write could not be made conditional."""
+        if not event.version:
             raise CalendarError(
-                "HAS_GUESTS",
-                f"'{clean(event.title, MAX_TITLE)}' has {len(event.attendees)} guest(s) or is an invitation. "
-                "Changing or deleting it could send email to the guests, which this server does not do.",
+                "VERSION_UNAVAILABLE", f"'{clean(event.title, MAX_TITLE)}' has no reliable version, so it cannot be changed safely."
             )
 
     def _fields(self, event: Event) -> dict:
         c = self._common(event)
-        return {
+        cut = [
+            name
+            for name, value, limit in (
+                ("title", event.title, MAX_TITLE),
+                ("location", event.location, MAX_LOCATION),
+                ("notes", event.notes, MAX_NOTES),
+            )
+            if was_cut(value, limit)
+        ]
+        out = {
             "title": clean(event.title, MAX_TITLE),
             "location": clean(event.location, MAX_LOCATION),
             "notes": clean(event.notes, MAX_NOTES),
@@ -312,6 +340,9 @@ class CalendarService:
             "recurrence": event.recurrence,
             "display": c["display"],
         }
+        if cut:
+            out["truncated_for_display"] = cut  # existing text longer than the display limit; never true for new values
+        return out
 
     def _issue(self, preview: dict, change: PendingChange) -> ChangePreview:
         token, expires = self.store.issue(change)
@@ -364,6 +395,7 @@ class CalendarService:
             "action": "create",
             "calendar": cal.calendar_name,
             "fields": self._fields(shown),
+            "untrusted_fields": list(UNTRUSTED_FIELDS),
             "recurrence_summary": summarize_recurrence(new.recurrence),
         }
         return self._issue(preview, PendingChange("create", calendar_id, payload={"new": new, "expected": shown}))
@@ -394,14 +426,33 @@ class CalendarService:
             return found
         master, target, kind, occ = found
         self._writable_calendar(master.calendar_id)
-        self._refuse_guests(master)
+        self._refuse_guests(master, target)
+        self._require_version(master)
         norm = normalize_changes(target, changes, self.default_tz, allow_recurrence=kind == "whole")
         after = apply_changes(target, norm)
         changed = [k for k in CHANGE_KEYS if self._differs(target, after, k, norm)]
         if not changed:
             raise CalendarError("INVALID_INPUT", "Those values are already what the event has; nothing would change.")
         warnings = []
-        if kind == "whole" and master.is_recurring and master.exceptions_count:
+        parts = set(master.extra.get("recurrence_parts", ()))
+        if kind == "whole" and norm.get("recurrence") and parts & {"RDATE", "EXRULE"}:
+            raise CalendarError(
+                "INVALID_INPUT",
+                "This series also has extra repeat dates or exclusion rules that this server cannot edit safely. "
+                "Remove the repeat entirely, or change it in the Calendar app.",
+            )
+        removing = kind == "whole" and "recurrence" in norm and norm["recurrence"] is None
+        if removing and master.is_recurring:
+            overrides = master.extra.get("overrides", master.exceptions_count)
+            if overrides:
+                raise CalendarError(
+                    "INVALID_INPUT",
+                    f"This series has {overrides} individually edited occurrence(s); removing the repeat would orphan them. "
+                    "Delete or change those occurrences first.",
+                )
+            if parts:
+                warnings.append("Extra repeat dates and skipped dates (" + ", ".join(sorted(parts)) + ") are removed together with the repeat.")
+        elif kind == "whole" and master.is_recurring and master.exceptions_count:
             if {"start", "timezone", "recurrence"} & set(changed):
                 raise CalendarError(
                     "INVALID_INPUT",
@@ -418,6 +469,7 @@ class CalendarService:
             "before": self._fields(target),
             "after": self._fields(after),
             "changed_fields": changed,
+            "untrusted_fields": list(UNTRUSTED_FIELDS),
             "warnings": warnings,
         }
         change = PendingChange(
@@ -447,7 +499,8 @@ class CalendarService:
             return found
         master, target, kind, occ = found
         self._writable_calendar(master.calendar_id)
-        self._refuse_guests(master)
+        self._refuse_guests(master, target)
+        self._require_version(master)
         if master.is_recurring and kind == "whole":
             warning = "This deletes the whole series: every occurrence, including past ones."
         elif master.is_recurring:
@@ -461,6 +514,7 @@ class CalendarService:
             "event_id": event_id,
             "occurrence_start": _iso(occ),
             "event": self._fields(target),
+            "untrusted_fields": list(UNTRUSTED_FIELDS),
             "warning": warning,
         }
         change = PendingChange(

@@ -51,6 +51,7 @@ class Event:
     alarms_minutes: tuple[int, ...] = ()
     last_modified: datetime | None = None
     version: str | None = None
+    scheduling: tuple[str, ...] = ()  # ATTENDEE / ORGANIZER / METHOD found anywhere in the stored resource
     extra: dict = field(default_factory=dict)
 
 

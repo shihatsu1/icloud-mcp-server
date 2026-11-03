@@ -12,10 +12,10 @@ test and scripts/probe_icloud.py, not assumed:
 from __future__ import annotations
 
 import hashlib
-import re
 import threading
 import time as _time
 from collections.abc import Callable
+from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 from datetime import time as dtime
 from typing import Any, TypeVar
@@ -24,6 +24,7 @@ from uuid import uuid4
 
 import caldav
 import recurring_ical_events
+from caldav.elements import dav as dav_elements
 from caldav.lib import error as dav_error
 from icalendar import Alarm
 from icalendar import Calendar as ICalendar
@@ -60,12 +61,12 @@ def _classify(exc: Exception) -> CalendarError:
     """Map library errors to stable codes. Exception text is never passed on: it can contain URLs."""
     if isinstance(exc, CalendarError):
         return exc
+    if isinstance(exc, (dav_error.ETagMismatchError, dav_error.ScheduleTagMismatchError)):
+        return CalendarError("CONFLICT", "The event was changed by someone else, so nothing was written.")
     if isinstance(exc, dav_error.AuthorizationError):
         return CalendarError("CREDENTIALS_REJECTED", "iCloud rejected the app-specific password.")
     if isinstance(exc, dav_error.NotFoundError):
         return CalendarError("NOT_FOUND", "The calendar or event was not found.")
-    if re.search(r"\b412\b|[Pp]recondition", str(exc)):  # If-Match failed: someone else changed it
-        return CalendarError("CONFLICT", "The event was changed by someone else, so nothing was written.")
     return CalendarError("ICLOUD_UNREACHABLE", "Could not get a valid answer from the calendar server.")
 
 
@@ -203,7 +204,7 @@ class CalDavBackend:
                 obj = self._event_by_uid(calendar_id, cal, uid)
             except dav_error.NotFoundError:
                 raise CalendarError("NOT_FOUND", f"No event {event_id!r} was found.") from None
-            version = _etag(obj)
+            version = _strong_etag(obj)
             ical = obj.icalendar_instance
             components = [c for c in ical.walk() if c.name == "VEVENT"]
             if not components:
@@ -213,33 +214,13 @@ class CalDavBackend:
             overrides = len(overrides_list)
             master = masters[0] if masters else components[0]
             recurring = "RRULE" in master or "RDATE" in master or overrides > 0
+            scheduling = _scheduling(ical)
+            extra = {
+                "recurrence_parts": tuple(p for p in ("RDATE", "EXDATE", "EXRULE") if p in master),
+                "overrides": overrides,
+            }
 
-            if occurrence_start is None or not recurring:
-                return component_to_event(
-                    master,
-                    calendar_id=calendar_id,
-                    calendar_name=name,
-                    event_id=event_id,
-                    version=version,
-                    override_siblings=overrides,
-                )
-
-            # A moved occurrence no longer sits at its original time, so match overrides directly
-            # by RECURRENCE-ID before expanding the series around the requested time.
-            for comp in overrides_list:
-                rid = comp["RECURRENCE-ID"].dt
-                if _same_start(rid, occurrence_start):
-                    return component_to_event(
-                        comp,
-                        calendar_id=calendar_id,
-                        calendar_name=name,
-                        event_id=event_id,
-                        version=version,
-                        override_siblings=overrides,
-                    )
-
-            probe = _occurrence_window(occurrence_start)
-            for comp in recurring_ical_events.of(ical).between(*probe):
+            def build(comp: Any) -> Event:
                 ev = component_to_event(
                     comp,
                     calendar_id=calendar_id,
@@ -248,6 +229,21 @@ class CalDavBackend:
                     version=version,
                     override_siblings=overrides,
                 )
+                return replace(ev, scheduling=scheduling, extra={**ev.extra, **extra})
+
+            if occurrence_start is None or not recurring:
+                return build(master)
+
+            # A moved occurrence no longer sits at its original time, so match overrides directly
+            # by RECURRENCE-ID before expanding the series around the requested time.
+            for comp in overrides_list:
+                rid = comp["RECURRENCE-ID"].dt
+                if _same_start(rid, occurrence_start):
+                    return build(comp)
+
+            probe = _occurrence_window(occurrence_start)
+            for comp in recurring_ical_events.of(ical).between(*probe):
+                ev = build(comp)
                 if _same_start(ev.occurrence_start or ev.start, occurrence_start):
                     return ev
             raise CalendarError("NOT_FOUND", "That occurrence was not found in the series.")
@@ -285,20 +281,32 @@ class CalDavBackend:
         return self._run(go)
 
     def _open(self, event_id: str, expected_version: str | None):
+        """Load the event and prove it is safe to write: same strong version as the preview, no guests.
+
+        python-caldav sends a conditional request only when a STRONG ETag is cached, and an unconditional
+        DELETE unless asked otherwise, so both are enforced here instead of assumed.
+        """
         calendar_id, uid = split_event_id(event_id)
         cal, _name = self._calendar(calendar_id)
         try:
             obj = self._event_by_uid(calendar_id, cal, uid)
         except dav_error.NotFoundError:
             raise CalendarError("NOT_FOUND", f"No event {event_id!r} was found.") from None
-        if expected_version is not None and _etag(obj) != expected_version:
+        current = _strong_etag(obj)
+        if current is None or expected_version is None:
+            raise CalendarError("VERSION_UNAVAILABLE", "The calendar server gave no reliable version for this event, so nothing was written.")
+        if current != expected_version:
             raise CalendarError("CONFLICT", "The event was changed after the preview, so nothing was written.")
+        if hasattr(obj, "props"):
+            obj.props[dav_elements.GetEtag.tag] = current  # make save()/delete() send If-Match with this tag
         ical = obj.icalendar_instance
+        if _scheduling(ical):
+            raise CalendarError("HAS_GUESTS", "This event has guests or scheduling data, so nothing was written.")
         components = [c for c in ical.walk() if c.name == "VEVENT"]
         if not components:
             raise CalendarError("NOT_FOUND", f"No event {event_id!r} was found.")
         masters = [c for c in components if "RECURRENCE-ID" not in c]
-        return obj, ical, (masters[0] if masters else components[0]), components
+        return obj, ical, (masters[0] if masters else components[0]), components, current
 
     def update_event(
         self,
@@ -310,7 +318,7 @@ class CalDavBackend:
         expected_version: str | None,
     ) -> Event:
         def go() -> Event:
-            obj, ical, master, components = self._open(event_id, expected_version)
+            obj, ical, master, components, _tag = self._open(event_id, expected_version)
             if scope == "occurrence":
                 if occurrence_start is None:
                     raise CalendarError("INVALID_INPUT", "occurrence_start is required for one occurrence.")
@@ -321,7 +329,7 @@ class CalDavBackend:
             else:
                 target = master
             _apply(target, changes, master)
-            obj.save()
+            obj.save(precondition="etag")
             return self.get_event(event_id, occurrence_start if scope == "occurrence" else None)
 
         return self._run(go)
@@ -335,9 +343,9 @@ class CalDavBackend:
         expected_version: str | None,
     ) -> None:
         def go() -> None:
-            obj, ical, master, components = self._open(event_id, expected_version)
+            obj, ical, master, components, tag = self._open(event_id, expected_version)
             if scope != "occurrence":
-                obj.delete()
+                obj.delete(if_match=tag, precondition="etag")  # never an unconditional DELETE
                 return
             if occurrence_start is None:
                 raise CalendarError("INVALID_INPUT", "occurrence_start is required for one occurrence.")
@@ -345,7 +353,7 @@ class CalDavBackend:
             if override is not None:
                 ical.subcomponents = [c for c in ical.subcomponents if c is not override]
             master.add("exdate", _in_master_kind(master, occurrence_start))
-            obj.save()
+            obj.save(precondition="etag")
 
         self._run(go)
 
@@ -445,6 +453,12 @@ def _apply(target: Any, changes: dict, master: Any) -> None:
     if "alarms_minutes" in changes:
         _set_alarms(target, changes["alarms_minutes"], str(target.get("SUMMARY", "")) or None)
     if "recurrence" in changes:
+        if changes["recurrence"] is None:
+            # Complete removal: extra dates and skip dates are meaningless (or still recurring) without the rule.
+            for name in ("RRULE", "RDATE", "EXRULE", "EXDATE"):
+                target.pop(name, None)
+        elif "RDATE" in target or "EXRULE" in target:
+            raise CalendarError("INVALID_INPUT", "This series has extra repeat dates or exclusion rules that cannot be edited safely.")
         target.pop("RRULE", None)
         if changes["recurrence"]:
             start = target["DTSTART"].dt
@@ -460,12 +474,28 @@ def _etag(obj: Any) -> str | None:
     if value:
         return str(value)
     try:
-        from caldav.elements import dav
-
-        got = obj.get_property(dav.GetEtag())
+        got = obj.get_property(dav_elements.GetEtag())
         return str(got) if got else None
-    except Exception:  # noqa: BLE001 - version is best effort in read-only milestone
+    except Exception:  # noqa: BLE001 - no version is handled by the callers (writes fail closed)
         return None
+
+
+def _strong_etag(obj: Any) -> str | None:
+    """The ETag if it can be used in If-Match (strong); None for a missing or weak (W/) tag."""
+    tag = _etag(obj)
+    return None if not tag or tag.startswith("W/") else tag
+
+
+def _scheduling(ical: Any) -> tuple[str, ...]:
+    """Reasons a stored resource must not be rewritten: guests or organizer/invitation data on ANY component."""
+    found: set[str] = set()
+    if ical.get("METHOD"):
+        found.add("METHOD")
+    for comp in ical.walk("VEVENT"):
+        for name in ("ATTENDEE", "ORGANIZER"):
+            if name in comp:
+                found.add(name)
+    return tuple(sorted(found))
 
 
 def _occurrence_window(value: datetime | date) -> tuple[Any, Any]:

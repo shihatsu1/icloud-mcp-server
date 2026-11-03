@@ -23,6 +23,7 @@ NEXT_STEPS = {
     "NOT_FOUND": "Check the event_id (and occurrence_start for a recurring event).",
     "INVALID_INPUT": "Fix the input and try again.",
     "HAS_GUESTS": "Change or delete this event in the Calendar app, where you can choose whether to notify the guests.",
+    "VERSION_UNAVAILABLE": "The calendar server gave no reliable version for this event, so a safe change is not possible. Use the Calendar app.",
     "RATE_LIMITED": "Too many changes were confirmed recently. Wait a few minutes, then run the preview again.",
 }
 
