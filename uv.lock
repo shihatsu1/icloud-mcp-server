@@ -1,12 +1,12 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.11"
 resolution-markers = [
     "python_full_version >= '3.15'",
     "python_full_version == '3.14.*' and sys_platform == 'emscripten'",
     "python_full_version == '3.14.*' and sys_platform != 'emscripten'",
     "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform == 'emscripten'",
-    "(python_full_version < '3.14' and sys_platform != 'emscripten') or (python_full_version < '3.12' and sys_platform == 'emscripten')",
+    "python_full_version < '3.12' or (python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform != 'emscripten')",
 ]
 
 [[package]]
@@ -203,9 +203,10 @@ wheels = [
 
 [[package]]
 name = "caldav"
-version = "3.5.0"
+version = "3.7.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
+    { name = "calendaring-config" },
     { name = "dnspython" },
     { name = "icalendar" },
     { name = "icalendar-searcher" },
@@ -215,9 +216,21 @@ dependencies = [
     { name = "pyyaml" },
     { name = "recurring-ical-events" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/96/b0/d5064b07ee0d4316e6b0240a0e7e388cdfb306aeeea4ea898f9a768e57b1/caldav-3.5.0.tar.gz", hash = "sha256:9ce1a15ec48a3a6bad73c9bdd44073f01b5a499bd43fc2710b5181a291a75f61", size = 752507, upload-time = "2026-10-15T09:59:35.931Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/0c/04/d083c70cbdf6a201fd4a9c6184b3470bda55f14b13979ade80a5909fa623/caldav-3.7.0.tar.gz", hash = "sha256:e121600e858e62c3631b9460167a099685f78f4ffda98b1a96e460c7b252fb45", size = 804207, upload-time = "2026-10-29T21:32:39.587Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/d2/15/069f8c104df9b82113e32950edc6e2770b49a78ffdd04fe2c6522edcd7e5/caldav-3.5.0-py3-none-any.whl", hash = "sha256:413c7f81d7c4b13db98ef01f4bf29660de53f526af265b583ff6a59628432e52", size = 251997, upload-time = "2026-10-15T09:59:34.345Z" },
+    { url = "https://files.pythonhosted.org/packages/eb/55/152109585ebb2779e864db486a7d750bcd9af5c23fec82b0af0f778a9b46/caldav-3.7.0-py3-none-any.whl", hash = "sha256:41d052f535e3f3e733b84cc455b2f62145aa70097eb7e345697fbe451b5e3db7", size = 292739, upload-time = "2026-10-29T21:32:37.237Z" },
+]
+
+[[package]]
+name = "calendaring-config"
+version = "0.5.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pyyaml" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/7c/ce/bd49e6a64ade7fa09d872eea80601281b1b4167b737ceb0de2b16d29b329/calendaring_config-0.5.0.tar.gz", hash = "sha256:ed68ae96a5d9790cdf0ea6a933ddafd617523759a8a3fd273c63a4f3c3dcc41c", size = 37968, upload-time = "2026-10-22T14:44:50.337Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/5f/17/3e4e04e3a344b2260139e64f53d34e95163e02b128b6066753540d5df524/calendaring_config-0.5.0-py3-none-any.whl", hash = "sha256:c5e1f6ffaf428a59b0e1373d951eb8e7fd9f49924912e65548cc2803e73a8646", size = 28571, upload-time = "2026-10-22T14:44:49.195Z" },
 ]
 
 [[package]]
@@ -986,7 +999,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "caldav", specifier = ">=3.5,<4" },
+    { name = "caldav", specifier = ">=3.7.0,<4" },
     { name = "fastmcp", specifier = ">=4.1,<5" },
     { name = "icalendar", specifier = ">=6" },
     { name = "py-key-value-aio", extras = ["firestore", "wrappers-encryption"], specifier = ">=0.4.6,<0.5" },
